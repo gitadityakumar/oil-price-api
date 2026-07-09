@@ -60,15 +60,10 @@ async function applyMigrations(seedOnly: boolean): Promise<void> {
       const isSeed = /seed/i.test(version);
 
       if (seedOnly) {
-        // --seed: apply the schema migration (001) plus seed files.
-        if (isSeed) {
-          // seeds run with --seed
-        } else if (version !== files[0].replace('.sql', '')) {
-          // skip non-initial non-seed files in seed mode
-          continue;
-        }
+        // --seed: apply all schema migrations AND seed files
+        // (seeds depend on schema being fully up to date).
       } else {
-        // default: apply non-seed migrations only.
+        // default: apply non-seed migrations only; skip seed files.
         if (isSeed) continue;
       }
 
