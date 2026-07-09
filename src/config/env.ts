@@ -11,7 +11,26 @@ export type Env = {
   s3Bucket: string | undefined;
   s3Region: string | undefined;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  ingestionLiveFetch: boolean;
+  fetchTimeoutMs: number;
+  fetchMaxBytes: number;
 };
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === '') return fallback;
+  if (value === 'true' || value === '1') return true;
+  if (value === 'false' || value === '0') return false;
+  throw new AppError('CONFIG_ERROR', `Invalid boolean value: ${value}`, 500);
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number, field: string): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new AppError('CONFIG_ERROR', `Invalid ${field}: ${value}`, 500);
+  }
+  return parsed;
+}
 
 function parseNodeEnv(value: string | undefined): Env['nodeEnv'] {
   if (!value) return 'development';
@@ -60,6 +79,9 @@ function buildConfig(): Env {
     s3Bucket: process.env.S3_BUCKET || undefined,
     s3Region: process.env.S3_REGION || undefined,
     logLevel: parseLogLevel(process.env.LOG_LEVEL),
+    ingestionLiveFetch: parseBoolean(process.env.INGESTION_LIVE_FETCH, false),
+    fetchTimeoutMs: parsePositiveInt(process.env.FETCH_TIMEOUT_MS, 15000, 'FETCH_TIMEOUT_MS'),
+    fetchMaxBytes: parsePositiveInt(process.env.FETCH_MAX_BYTES, 5 * 1024 * 1024, 'FETCH_MAX_BYTES'),
   };
 
   // Required outside tests and dev.
