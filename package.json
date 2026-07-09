@@ -1,0 +1,26 @@
+{
+  "name": "oil-api",
+  "version": "0.1.0",
+  "description": "Indian Fuel Price API — native Node.js HTTP service.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "node --test dist/test/**/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck"
+  },
+  "dependencies": {
+    "pg": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
