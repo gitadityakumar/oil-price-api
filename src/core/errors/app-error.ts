@@ -6,6 +6,7 @@ export type AppErrorCode =
   | 'RATE_LIMITED'
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
+  | 'FORBIDDEN'
   | 'CONFLICT'
   | 'UPSTREAM_ERROR'
   | 'DB_ERROR'
@@ -20,6 +21,7 @@ export const STATUS_BY_CODE: Record<AppErrorCode, number> = {
   RATE_LIMITED: 429,
   NOT_FOUND: 404,
   METHOD_NOT_ALLOWED: 405,
+  FORBIDDEN: 403,
   CONFLICT: 409,
   UPSTREAM_ERROR: 502,
   DB_ERROR: 500,

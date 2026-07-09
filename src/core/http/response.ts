@@ -1,5 +1,12 @@
 import type { HttpContext } from './context';
 import { AppError } from '../errors/app-error';
+import {
+  successEnvelope,
+  errorEnvelope,
+  type CacheMeta,
+  type PaginationMeta,
+  type EnvelopeOptions,
+} from './envelope';
 
 export type Headers = Record<string, string>;
 
@@ -40,16 +47,22 @@ function serialize(value: unknown): unknown {
   return value;
 }
 
-/** Standard success envelope: { data, meta: { request_id, timestamp } } */
-export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, headers?: Headers): void {
-  const payload = {
-    data,
-    meta: {
-      request_id: ctx.requestId,
-      timestamp: new Date().toISOString(),
-    },
-  };
-  writeJson(ctx, statusCode, payload, headers);
+/**
+ * Standard success envelope: { data, meta: { request_id, api_version,
+ * served_at, cache?, pagination? } }. Optional `options.pagination`/`cache`
+ * attach those meta blocks.
+ */
+export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, options?: { headers?: Headers; cache?: CacheMeta; pagination?: PaginationMeta }): void {
+  const envOptions: EnvelopeOptions = {};
+  if (options?.cache) envOptions.cache = options.cache;
+  if (options?.pagination) envOptions.pagination = options.pagination;
+  const payload = successEnvelope(data, ctx.requestId, envOptions);
+  writeJson(ctx, statusCode, payload, options?.headers);
+}
+
+/** Success envelope with explicit pagination meta. */
+export function okPaginated<T>(ctx: HttpContext, data: T, pagination: PaginationMeta, statusCode = 200, cache?: CacheMeta): void {
+  ok(ctx, data, statusCode, { pagination, cache });
 }
 
 /** Generic JSON response for non-envelope payloads (used rarely). */
@@ -74,19 +87,9 @@ export function redirect(ctx: HttpContext, location: string, statusCode = 302): 
   ctx.res.end();
 }
 
-/** Standard error envelope: { error: { code, message, details } , meta } */
+/** Standard error envelope: { error: { code, message, details, request_id } } */
 export function error(ctx: HttpContext, appError: AppError): void {
-  const payload = {
-    error: {
-      code: appError.code,
-      message: appError.message,
-      details: appError.details ?? null,
-    },
-    meta: {
-      request_id: ctx.requestId,
-      timestamp: new Date().toISOString(),
-    },
-  };
+  const payload = errorEnvelope(ctx.requestId, appError.code, appError.message, appError.details);
   writeJson(ctx, appError.statusCode, payload);
 }
 
