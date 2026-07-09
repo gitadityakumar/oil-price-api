@@ -46,14 +46,15 @@ const SELECT_COLS = `
   o.public_id      as outlet_public_id,
   o.outlet_name,
   o.fuel_station_type,
-  g.country_code,
-  g.state_name,
-  g.state_code,
-  g.district_name,
-  g.city_name,
-  g.area_name,
-  g.pincode         as geography_pincode,
-  g.canonical_label
+  coalesce(g.geography_id, og.geography_id) as display_geography_id,
+  coalesce(g.country_code, og.country_code, 'IN') as country_code,
+  coalesce(g.state_name, og.state_name) as state_name,
+  coalesce(g.state_code, og.state_code) as state_code,
+  coalesce(g.district_name, og.district_name) as district_name,
+  coalesce(g.city_name, og.city_name) as city_name,
+  coalesce(g.area_name, og.area_name) as area_name,
+  coalesce(g.pincode, og.pincode, o.pincode) as geography_pincode,
+  coalesce(g.canonical_label, og.canonical_label, o.city_name || ', ' || o.state_name || ' ' || o.pincode) as canonical_label
 `;
 
 function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
@@ -88,10 +89,10 @@ function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
     outlet_name: (r.outlet_name as string | null) ?? null,
     fuel_station_type: (r.fuel_station_type as string | null) ?? null,
     geo:
-      r.geography_id === null
+      r.display_geography_id === null
         ? null
         : {
-            geography_id: r.geography_id as number,
+            geography_id: Number(r.display_geography_id),
             country_code: (r.country_code ?? 'IN') as string,
             state_name: (r.state_name as string | null) ?? null,
             state_code: (r.state_code as string | null) ?? null,
@@ -134,6 +135,7 @@ export async function findPriceFactsByTargets(input: {
       join source_catalog s on s.source_id = p.source_id
       left join geography_dim g on g.geography_id = p.geography_id
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
+      left join geography_dim og on og.pincode = o.pincode
      where f.fuel_code = any($1::text[])
        and p.applicable_date = $2
        and (
@@ -170,6 +172,7 @@ export async function findHistoricalPriceFacts(input: {
       join source_catalog s on s.source_id = p.source_id
       left join geography_dim g on g.geography_id = p.geography_id
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
+      left join geography_dim og on og.pincode = o.pincode
      where f.fuel_code = $1::text
        and p.applicable_date between $2 and $3
        and (
@@ -199,6 +202,7 @@ export async function findPriceFactByPublicId(publicId: string): Promise<Enriche
       join source_catalog s on s.source_id = p.source_id
       left join geography_dim g on g.geography_id = p.geography_id
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
+      left join geography_dim og on og.pincode = o.pincode
      where p.public_id = $1
      limit 1`;
   const res = await query<Record<string, unknown>>(sql, [publicId]);

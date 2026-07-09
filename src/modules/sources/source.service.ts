@@ -27,6 +27,9 @@ import type {
   StalenessLevel,
 } from './source.model';
 import type { SourceSchema } from './source.schema';
+import { getCache } from '../../core/cache/cache';
+import { CACHE_TTL_SECONDS, type Cache } from '../../core/cache/cache.model';
+import { sourceHealthCacheKey } from '../../core/cache/cache-key';
 
 // Expected cadence minutes per source type. Tunable, kept conservative.
 const CADENCE_MINUTES: Record<string, number> = {
@@ -40,6 +43,8 @@ const CADENCE_MINUTES: Record<string, number> = {
 };
 
 export class SourceService {
+  constructor(private readonly cache: Cache = getCache()) {}
+
   async listSources(filters: SourceFilters): Promise<SourceListResult> {
     const rows = await findSources(filters);
     const total = await countSources(filters);
@@ -64,6 +69,9 @@ export class SourceService {
   }
 
   async getSourceHealth(): Promise<SourceHealthRow[]> {
+    const key = sourceHealthCacheKey('all');
+    const cached = await safeGet<SourceHealthRow[]>(this.cache, key);
+    if (cached) return cached;
     const sources = await findSources({ active: true, limit: 1000, offset: 0 });
     const out: SourceHealthRow[] = [];
     for (const src of sources) {
@@ -89,6 +97,7 @@ export class SourceService {
         },
       });
     }
+    await safeSet(this.cache, key, out, CACHE_TTL_SECONDS.sourceHealth);
     return out;
   }
 
@@ -122,4 +131,12 @@ function toIsoOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
   return new Date(String(value)).toISOString();
+}
+
+async function safeGet<T>(cache: Cache, key: string): Promise<T | null> {
+  try { return await cache.get<T>(key); } catch { return null; }
+}
+
+async function safeSet<T>(cache: Cache, key: string, value: T, ttl: number): Promise<void> {
+  try { await cache.set(key, value, ttl); } catch { /* best-effort */ }
 }

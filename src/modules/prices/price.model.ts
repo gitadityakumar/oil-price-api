@@ -7,6 +7,7 @@
 import type { FuelCode, PriceKind } from './prices.model';
 import type { ResolutionMethod } from '../locations/locations.model';
 import type { PriceSchema, PriceComponentsSchema } from './price.schema';
+import type { CacheMeta } from '../../core/cache/cache.model';
 
 export type LocationInput =
   | { type: 'pin'; pin: string }
@@ -44,12 +45,14 @@ export interface PriceLookupResult {
   prices: PriceSchema[];
   total: number;
   warnings: Warning[];
+  cache: CacheMeta;
 }
 
 export interface PriceHistoryResult {
   prices: PriceSchema[];
   total: number;
   warnings: Warning[];
+  cache: CacheMeta;
 }
 
 export interface PriceComponentsResult {

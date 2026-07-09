@@ -143,7 +143,7 @@ export function mapPrice(row: PriceFactWithProvenance): PriceSchema {
       applicable_date: row.applicable_date,
       effective_at: row.effective_at,
       observed_at: row.observed_at,
-      freshness_badge: computeFreshnessBadge(row.observed_at),
+      freshness_badge: row.freshness_badge ?? computeFreshnessBadge(row.observed_at),
       confidence_score: row.confidence_score !== null ? toNumber(row.confidence_score) : null,
       raw_hash: row.raw_hash,
     },

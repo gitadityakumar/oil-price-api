@@ -28,7 +28,7 @@ export class PriceController {
     const result = await this.service.getCurrentPrices(input, { requestId: ctx.requestId });
     const pagination = buildPagination({ limit: input.limit, offset: input.offset, total: result.total });
     okPaginated(ctx, result.prices, pagination, 200, {
-      cache: { status: 'BYPASS', ttl_seconds: null },
+      cache: result.cache,
       warnings: result.warnings.length > 0 ? result.warnings : undefined,
     });
   }
@@ -44,7 +44,7 @@ export class PriceController {
     const result = await this.service.getHistoricalPrices(input, { requestId: ctx.requestId });
     const pagination = buildPagination({ limit: input.limit, offset: input.offset, total: result.total });
     okPaginated(ctx, result.prices, pagination, 200, {
-      cache: { status: 'BYPASS', ttl_seconds: null },
+      cache: result.cache,
       warnings: result.warnings.length > 0 ? result.warnings : undefined,
     });
   }

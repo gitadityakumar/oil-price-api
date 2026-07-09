@@ -61,6 +61,7 @@ export type PriceFactWithProvenance = PriceFactRow & {
   source_type?: string | null;
   operator_name?: string | null;
   reliability_tier?: string | null;
+  freshness_badge?: string | null;
 };
 
 export type GeographySlices = {

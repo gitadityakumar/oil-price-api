@@ -67,6 +67,7 @@ export class StationController {
       );
       const pagination = buildPagination({ limit: parsedPaging.limit, offset: parsedPaging.offset, total: result.total });
       okPaginated(ctx, result.prices, pagination, 200, {
+        cache: result.cache,
         warnings: result.warnings.length > 0 ? result.warnings : undefined,
       });
     } catch (e) {

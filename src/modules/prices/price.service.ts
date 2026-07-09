@@ -39,16 +39,34 @@ import { AppError } from '../../core/errors/app-error';
 import type { PriceSchema } from './price.schema';
 import type { ResolvedTarget } from '../locations/location.model';
 import type { PriceFactWithProvenance } from './prices.model';
+import { getCache } from '../../core/cache/cache';
+import { CACHE_TTL_SECONDS, type Cache } from '../../core/cache/cache.model';
+import { priceSearchCacheKey } from '../../core/cache/cache-key';
+import { FreshnessService } from '../locations/freshness.service';
+import { ConfidenceService } from '../locations/confidence.service';
 
 const locationService = new LocationService();
+const freshnessService = new FreshnessService();
+const confidenceService = new ConfidenceService();
+
+type CachedLookup = Pick<PriceLookupResult, 'prices' | 'total' | 'warnings'>;
+type CachedHistory = Pick<PriceHistoryResult, 'prices' | 'total' | 'warnings'>;
 
 export class PriceService {
+  constructor(private readonly cache: Cache = getCache()) {}
+
   async getCurrentPrices(input: PriceLookupInput, _ctx: ClientContext): Promise<PriceLookupResult> {
+    const cacheKey = priceSearchCacheKey({ selector: input.location, fuels: input.fuels, date: input.date, includes: input.includes });
+    const cached = await safeGet<CachedLookup>(this.cache, cacheKey);
+    if (cached) return { ...cached, cache: { status: 'HIT', ttl_seconds: CACHE_TTL_SECONDS.searchResult } };
+
     const resolution = await locationService.resolve(input.location);
     const warnings: Warning[] = [...resolution.warnings];
     const targets = resolution.candidates;
     if (targets.length === 0) {
-      return { prices: [], total: 0, warnings };
+      const empty = { prices: [], total: 0, warnings };
+      await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
+      return { ...empty, cache: { status: 'MISS', ttl_seconds: null } };
     }
 
     const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
@@ -87,15 +105,23 @@ export class PriceService {
     if (prices.length === 0) {
       warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date.' });
     }
-    return { prices, total, warnings };
+    const result = { prices, total, warnings };
+    await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
+    return { ...result, cache: { status: 'MISS', ttl_seconds: null } };
   }
 
   async getHistoricalPrices(input: PriceHistoryInput, _ctx: ClientContext): Promise<PriceHistoryResult> {
+    const cacheKey = priceSearchCacheKey({ selector: input.location, fuels: [input.fuel], date: `${input.from}:${input.to}`, includes: [] });
+    const cached = await safeGet<CachedHistory>(this.cache, cacheKey);
+    if (cached) return { ...cached, cache: { status: 'HIT', ttl_seconds: CACHE_TTL_SECONDS.searchResult } };
+
     const resolution = await locationService.resolve(input.location);
     const warnings: Warning[] = [...resolution.warnings];
     const targets = resolution.candidates;
     if (targets.length === 0) {
-      return { prices: [], total: 0, warnings };
+      const empty = { prices: [], total: 0, warnings };
+      await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
+      return { ...empty, cache: { status: 'MISS', ttl_seconds: null } };
     }
 
     const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
@@ -125,7 +151,9 @@ export class PriceService {
     if (prices.length === 0) {
       warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date range.' });
     }
-    return { prices, total, warnings };
+    const result = { prices, total, warnings };
+    await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
+    return { ...result, cache: { status: 'MISS', ttl_seconds: null } };
   }
 
   async getPriceComponents(publicPriceId: string): Promise<PriceComponentsResult> {
@@ -181,8 +209,24 @@ export function rankAndDedupe(rows: EnrichedPriceFactRow[], _targets: ResolvedTa
 
 function toPriceSchema(row: EnrichedPriceFactRow, location: PriceLookupInput['location'], targets: ResolvedTarget[]): PriceSchema {
   const target = matchTarget(row, targets);
+  const method = target?.resolution_method ?? row.pin_resolution?.method ?? 'city_fallback';
+  const hasComponentsHint = Boolean(row.components && row.components.length > 0);
   const enriched: PriceFactWithProvenance = {
     ...row,
+    confidence_score: String(confidenceService.score({
+      reliabilityTier: row.reliability_tier,
+      method,
+      applicableDate: row.applicable_date,
+      observedAt: row.observed_at,
+      hasComponents: hasComponentsHint,
+    })),
+    freshness_badge: freshnessService.buildBadge({
+      sourceType: row.source_type,
+      reliabilityTier: row.reliability_tier,
+      applicableDate: row.applicable_date,
+      effectiveAt: row.effective_at,
+      observedAt: row.observed_at,
+    }),
     pin_resolution: target
       ? {
           pincode: location.type === 'pin' ? location.pin : (row.geo?.pincode ?? ''),
@@ -245,4 +289,12 @@ function uniqueNums(arr: (number | null)[]): number[] {
   const set = new Set<number>();
   for (const v of arr) if (v !== null && v !== undefined) set.add(v);
   return [...set];
+}
+
+async function safeGet<T>(cache: Cache, key: string): Promise<T | null> {
+  try { return await cache.get<T>(key); } catch { return null; }
+}
+
+async function safeSet<T>(cache: Cache, key: string, value: T, ttl: number): Promise<void> {
+  try { await cache.set(key, value, ttl); } catch { /* cache is best-effort */ }
 }
