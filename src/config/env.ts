@@ -1,0 +1,87 @@
+import { AppError } from '../core/errors/app-error';
+
+export type Env = {
+  nodeEnv: 'development' | 'test' | 'production';
+  port: number;
+  databaseUrl: string | undefined;
+  redisUrl: string | undefined;
+  apiKeyPepper: string | undefined;
+  artifactStorageMode: 'local' | 's3';
+  artifactLocalDir: string;
+  s3Bucket: string | undefined;
+  s3Region: string | undefined;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+};
+
+function parseNodeEnv(value: string | undefined): Env['nodeEnv'] {
+  if (!value) return 'development';
+  if (value === 'development' || value === 'test' || value === 'production') {
+    return value;
+  }
+  throw new AppError('CONFIG_ERROR', `Invalid NODE_ENV: ${value}`, 500);
+}
+
+function parsePort(value: string | undefined): number {
+  if (!value) return 8080;
+  const port = Number.parseInt(value, 10);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+    throw new AppError('CONFIG_ERROR', `Invalid PORT: ${value}`, 500);
+  }
+  return port;
+}
+
+function parseLogLevel(value: string | undefined): Env['logLevel'] {
+  if (!value) return 'info';
+  if (value === 'debug' || value === 'info' || value === 'warn' || value === 'error') {
+    return value;
+  }
+  throw new AppError('CONFIG_ERROR', `Invalid LOG_LEVEL: ${value}`, 500);
+}
+
+function parseStorageMode(value: string | undefined): Env['artifactStorageMode'] {
+  if (!value) return 'local';
+  if (value === 'local' || value === 's3') return value;
+  throw new AppError('CONFIG_ERROR', `Invalid ARTIFACT_STORAGE_MODE: ${value}`, 500);
+}
+
+function buildConfig(): Env {
+  const nodeEnv = parseNodeEnv(process.env.NODE_ENV);
+  const isTest = nodeEnv === 'test';
+  const isDev = nodeEnv === 'development';
+
+  const env: Env = {
+    nodeEnv,
+    port: parsePort(process.env.PORT),
+    databaseUrl: process.env.DATABASE_URL,
+    redisUrl: process.env.REDIS_URL || undefined,
+    apiKeyPepper: process.env.API_KEY_PEPPER || undefined,
+    artifactStorageMode: parseStorageMode(process.env.ARTIFACT_STORAGE_MODE),
+    artifactLocalDir: process.env.ARTIFACT_LOCAL_DIR || './.artifacts',
+    s3Bucket: process.env.S3_BUCKET || undefined,
+    s3Region: process.env.S3_REGION || undefined,
+    logLevel: parseLogLevel(process.env.LOG_LEVEL),
+  };
+
+  // Required outside tests and dev.
+  if (!isTest && !env.databaseUrl) {
+    if (!isDev) {
+      throw new AppError('CONFIG_ERROR', 'DATABASE_URL is required', 500);
+    }
+  }
+
+  // API key pepper required outside dev/test.
+  if (!isDev && !isTest && !env.apiKeyPepper) {
+    throw new AppError('CONFIG_ERROR', 'API_KEY_PEPPER is required in production', 500);
+  }
+
+  // S3 mode mandates bucket/region.
+  if (env.artifactStorageMode === 's3') {
+    if (!env.s3Bucket || !env.s3Region) {
+      throw new AppError('CONFIG_ERROR', 'S3_BUCKET and S3_REGION are required in s3 mode', 500);
+    }
+  }
+
+  return env;
+}
+
+export const config: Env = buildConfig();
