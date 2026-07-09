@@ -1,0 +1,248 @@
+/**
+ * Price service — business logic only. No HTTP types.
+ *
+ * - Resolves location selectors via LocationService.
+ * - Fetches enriched rows from the price repository.
+ * - Ranks competing rows per fuel by resolution, reliability, price_kind,
+ *   recency, confidence (per Task 5 selection order).
+ * - Maps to the Task 4 output schema, attaching PIN resolution details and
+ *   optional components.
+ */
+
+import {
+  findPriceFactsByTargets,
+  findHistoricalPriceFacts,
+  findPriceFactByPublicId,
+  findComponentsByPublicPriceId,
+  countPriceFactsByTargets,
+  countHistoricalPriceFacts,
+  type EnrichedPriceFactRow,
+} from './price.repository';
+import { LocationService } from '../locations/location.service';
+import {
+  mapPrice,
+  mapPriceComponents,
+} from './price.schema';
+import {
+  resolutionRank,
+  reliabilityRank,
+  priceKindRank,
+  type PriceLookupInput,
+  type PriceHistoryInput,
+  type PriceComponentsResult,
+  type PriceLookupResult,
+  type PriceHistoryResult,
+  type ClientContext,
+  type Warning,
+} from './price.model';
+import { AppError } from '../../core/errors/app-error';
+import type { PriceSchema } from './price.schema';
+import type { ResolvedTarget } from '../locations/location.model';
+import type { PriceFactWithProvenance } from './prices.model';
+
+const locationService = new LocationService();
+
+export class PriceService {
+  async getCurrentPrices(input: PriceLookupInput, _ctx: ClientContext): Promise<PriceLookupResult> {
+    const resolution = await locationService.resolve(input.location);
+    const warnings: Warning[] = [...resolution.warnings];
+    const targets = resolution.candidates;
+    if (targets.length === 0) {
+      return { prices: [], total: 0, warnings };
+    }
+
+    const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
+    const outletIds = uniqueNums(targets.map((t) => t.outlet_id));
+
+    const rows = await findPriceFactsByTargets({
+      fuelCodes: input.fuels,
+      applicableDate: input.date,
+      geographyIds,
+      outletIds,
+      limit: Math.max(input.limit * input.fuels.length, input.limit) + 50,
+      offset: 0,
+    });
+
+    const total = await countPriceFactsByTargets({
+      fuelCodes: input.fuels,
+      applicableDate: input.date,
+      geographyIds,
+      outletIds,
+    });
+
+    const ranked = rankAndDedupe(rows, targets, input.location);
+    const sliced = ranked.slice(input.offset, input.offset + input.limit);
+
+    let prices = sliced.map((row) => toPriceSchema(row, input.location, targets));
+    if (input.includes.includes('components')) {
+      prices = await attachComponents(prices, sliced);
+    }
+    if (!input.includes.includes('source')) {
+      prices = prices.map((p) => ({ ...p, source: stripSource(p.source) }));
+    }
+    if (!input.includes.includes('outlet')) {
+      prices = prices.map((p) => ({ ...p, outlet: null }));
+    }
+
+    if (prices.length === 0) {
+      warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date.' });
+    }
+    return { prices, total, warnings };
+  }
+
+  async getHistoricalPrices(input: PriceHistoryInput, _ctx: ClientContext): Promise<PriceHistoryResult> {
+    const resolution = await locationService.resolve(input.location);
+    const warnings: Warning[] = [...resolution.warnings];
+    const targets = resolution.candidates;
+    if (targets.length === 0) {
+      return { prices: [], total: 0, warnings };
+    }
+
+    const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
+    const outletIds = uniqueNums(targets.map((t) => t.outlet_id));
+
+    const rows = await findHistoricalPriceFacts({
+      fuelCode: input.fuel,
+      from: input.from,
+      to: input.to,
+      geographyIds,
+      outletIds,
+      limit: input.limit,
+      offset: input.offset,
+    });
+
+    const total = await countHistoricalPriceFacts({
+      fuelCode: input.fuel,
+      from: input.from,
+      to: input.to,
+      geographyIds,
+      outletIds,
+    });
+
+    const ranked = rankAndDedupe(rows, targets, input.location);
+    const prices = ranked.map((row) => toPriceSchema(row, input.location, targets));
+
+    if (prices.length === 0) {
+      warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date range.' });
+    }
+    return { prices, total, warnings };
+  }
+
+  async getPriceComponents(publicPriceId: string): Promise<PriceComponentsResult> {
+    const price = await findPriceFactByPublicId(publicPriceId);
+    if (!price) {
+      throw new AppError('NOT_FOUND', `Price not found: ${publicPriceId}`, 404);
+    }
+    const components = await findComponentsByPublicPriceId(publicPriceId);
+    return {
+      components: mapPriceComponents(
+        {
+          public_id: price.public_id,
+          observed_at: price.observed_at,
+          raw_hash: price.raw_hash,
+          source_key: price.source_key,
+          source_name: price.source_name ?? null,
+          raw_document_url: price.raw_document_url,
+        },
+        components,
+      ),
+    };
+  }
+}
+
+export function rankAndDedupe(rows: EnrichedPriceFactRow[], _targets: ResolvedTarget[] = [], _location: unknown = null): EnrichedPriceFactRow[] {
+  const scored = rows.map((row) => {
+    const method = row.pin_resolution?.method ?? 'city_fallback';
+    const kind = row.price_kind;
+    const score =
+      resolutionRank(method) * 1_000_000 +
+      reliabilityRank(row.reliability_tier) * 10_000 +
+      priceKindRank(kind) * 100 +
+      (Number(row.confidence_score ?? 0) === 0 ? 1 : 0);
+    const observedTs = new Date(row.observed_at).getTime();
+    return { row, score, observedTs };
+  });
+  scored.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    // newer observed_at first
+    return b.observedTs - a.observedTs;
+  });
+  // Best row per (fuel_code, location key) to avoid duplicates.
+  const seen = new Set<string>();
+  const out: EnrichedPriceFactRow[] = [];
+  for (const s of scored) {
+    const key = `${s.row.fuel_code ?? 'unknown'}|${s.row.geography_id ?? ''}|${s.row.outlet_id ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s.row);
+  }
+  return out;
+}
+
+function toPriceSchema(row: EnrichedPriceFactRow, location: PriceLookupInput['location'], targets: ResolvedTarget[]): PriceSchema {
+  const target = matchTarget(row, targets);
+  const enriched: PriceFactWithProvenance = {
+    ...row,
+    pin_resolution: target
+      ? {
+          pincode: location.type === 'pin' ? location.pin : (row.geo?.pincode ?? ''),
+          method: target.resolution_method,
+          priority_rank: target.priority_rank,
+          direct_from_source: target.direct_from_source,
+          derived: target.derived,
+          input_type: location.type,
+          input_value: selectorValue(location),
+          geography_id: target.geography_id,
+          outlet_id: target.outlet_id,
+        }
+      : row.pin_resolution ?? null,
+  };
+  return mapPrice(enriched);
+}
+
+function matchTarget(row: EnrichedPriceFactRow, targets: ResolvedTarget[]): ResolvedTarget | null {
+  if (row.outlet_id !== null) {
+    const t = targets.find((x) => x.outlet_id === row.outlet_id);
+    if (t) return t;
+  }
+  if (row.geography_id !== null) {
+    const t = targets.find((x) => x.geography_id === row.geography_id);
+    if (t) return t;
+  }
+  return targets[0] ?? null;
+}
+
+function selectorValue(location: PriceLookupInput['location']): string {
+  switch (location.type) {
+    case 'pin': return location.pin;
+    case 'city_state': return `${location.city},${location.state}`;
+    case 'state': return location.state;
+    case 'outlet_id': return location.outlet_id;
+  }
+}
+
+async function attachComponents(prices: PriceSchema[], rows: EnrichedPriceFactRow[]): Promise<PriceSchema[]> {
+  return Promise.all(
+    prices.map(async (p, i) => {
+      const row = rows[i];
+      if (!row) return p;
+      const comps = await findComponentsByPublicPriceId(row.public_id);
+      const mapped = mapPriceComponents(
+        { public_id: row.public_id, observed_at: row.observed_at, raw_hash: row.raw_hash, source_key: row.source_key, source_name: row.source_name ?? null, raw_document_url: row.raw_document_url },
+        comps,
+      );
+      return { ...p, components: mapped.components } as PriceSchema & { components: typeof mapped.components };
+    }),
+  ) as Promise<PriceSchema[]>;
+}
+
+function stripSource(source: PriceSchema['source']): PriceSchema['source'] {
+  // include=source not requested: keep only minimal identifiers.
+  return { ...source, attribution: null, document_url: null };
+}
+
+function uniqueNums(arr: (number | null)[]): number[] {
+  const set = new Set<number>();
+  for (const v of arr) if (v !== null && v !== undefined) set.add(v);
+  return [...set];
+}
