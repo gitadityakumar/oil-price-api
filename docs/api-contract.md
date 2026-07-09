@@ -1,18 +1,42 @@
-# API Contract — Indian Fuel Price API (v1)
+# API Contract - Indian Fuel Price API v1
 
-This document freezes the public REST contract for the v1 API. All endpoints
-return JSON only and use one of two standardized envelopes.
+All normal responses are JSON, use `snake_case`, and are versioned under `/v1`.
+`/v1/health` is public. Every other endpoint requires API key auth.
 
-## Principles
+## Auth
 
-- All endpoints are versioned under `/v1`.
-- JSON only. Fields use `snake_case`.
-- Timestamps are ISO 8601 (UTC, `Z` suffix).
-- Prices are JSON numbers (decimal) backed by PostgreSQL `numeric` internally.
-- Every price-bearing response includes source provenance and PIN resolution.
-- Auth (API key) is required on every non-health endpoint.
+Supported formats:
 
-## Success envelope
+```txt
+Authorization: Bearer ifp_test_cli_xxx_secret
+```
+
+or:
+
+```txt
+X-Client-ID: cli_xxx
+X-API-Key: ifp_test_cli_xxx_secret
+```
+
+Required scopes:
+
+| Endpoint group | Scope |
+|---|---|
+| Public read endpoints | `read:public` |
+| `/v1/internal/sources/health`, `/v1/internal/crawl-runs` | `read:internal` |
+| `POST /v1/internal/ingestion/runs` | `write:ingestion` |
+
+Rate limited responses include:
+
+| Header | Meaning |
+|---|---|
+| `x-rate-limit-limit` | Client minute limit. |
+| `x-rate-limit-remaining` | Remaining requests in the current minute. |
+| `x-rate-limit-reset` | Unix epoch seconds when the minute resets. |
+
+## Envelopes
+
+Success:
 
 ```json
 {
@@ -21,79 +45,41 @@ return JSON only and use one of two standardized envelopes.
     "request_id": "req_example",
     "api_version": "v1",
     "served_at": "2026-07-09T06:17:00.000Z",
-    "cache": {
-      "status": "MISS",
-      "ttl_seconds": null
-    }
+    "cache": { "status": "MISS", "ttl_seconds": null }
   }
 }
 ```
 
-For arrays, `meta.pagination` is included:
+Paginated lists add:
 
 ```json
 {
-  "data": [],
-  "meta": {
-    "request_id": "req_example",
-    "api_version": "v1",
-    "served_at": "2026-07-09T06:17:00.000Z",
-    "pagination": {
-      "limit": 50,
-      "offset": 0,
-      "next_offset": 50,
-      "total": 534
-    },
-    "cache": {
-      "status": "HIT",
-      "ttl_seconds": 3270
-    }
+  "pagination": {
+    "limit": 50,
+    "offset": 0,
+    "next_offset": 50,
+    "total": 534
   }
 }
 ```
 
-`meta.cache.status` is one of `MISS`, `HIT`, `BYPASS`, `STALE`. `next_offset`
-is `null` when the end of the result set is reached.
-
-## Error envelope
+Error:
 
 ```json
 {
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Exactly one location selector is required: pin, city/state, state, or outlet_id.",
-    "details": [
-      { "field": "pin", "reason": "Must be a 6 digit India Post PIN code." }
-    ],
+    "details": [{ "field": "pin", "reason": "Must be a 6 digit India Post PIN code." }],
     "request_id": "req_example"
   }
 }
 ```
 
-## Error codes
+Cache status values are `MISS`, `HIT`, `BYPASS`, `STALE`, and
+`STALE_REVALIDATED`.
 
-| Code | HTTP | Meaning |
-|---|---:|---|
-| `VALIDATION_ERROR` | 400 | Invalid query/body. |
-| `AUTH_REQUIRED` | 401 | Missing API key. |
-| `AUTH_INVALID` | 401 | Invalid/revoked API key. |
-| `FORBIDDEN` | 403 | Valid key lacks scope (e.g. internal ops on a client key). |
-| `NOT_FOUND` | 404 | Entity/path not found. |
-| `METHOD_NOT_ALLOWED` | 405 | Path exists but method unsupported. |
-| `RATE_LIMITED` | 429 | Rate or quota exceeded. |
-| `UPSTREAM_ERROR` | 502 | Source/vendor error during ingestion or fallback. |
-| `NOT_IMPLEMENTED` | 501 | Route scaffolded, logic pending. |
-| `INTERNAL_ERROR` | 500 | Unexpected failure. |
-
-## Core output schemas
-
-### Fuel
-
-```json
-{ "code": "PETROL", "label": "Petrol", "unit": "LTR" }
-```
-
-Allowed fuel codes: `PETROL`, `DIESEL`, `CNG`, `PNG`, `LNG`, `LPG`.
+## Schemas
 
 ### Price
 
@@ -142,16 +128,16 @@ Allowed fuel codes: `PETROL`, `DIESEL`, `CNG`, `PNG`, `LNG`, `LPG`.
 }
 ```
 
-### Price components
+Allowed fuel codes: `PETROL`, `DIESEL`, `CNG`, `PNG`, `LNG`, `LPG`.
+
+### Component Response
 
 ```json
 {
   "price_id": "price_example",
   "components": [
     { "name": "base_price", "value": 57.35, "unit": "INR/LTR" },
-    { "name": "excise", "value": 19.9, "unit": "INR/LTR" },
-    { "name": "vat", "value": 15.71, "unit": "INR/LTR" },
-    { "name": "dealer_commission", "value": 3.76, "unit": "INR/LTR" }
+    { "name": "excise", "value": 19.9, "unit": "INR/LTR" }
   ],
   "source": { "id": "src_ppac_rsp", "name": "PPAC RSP Archive", "document_url": null },
   "provenance": { "observed_at": "2026-07-09T00:47:00.000Z", "raw_hash": "sha256:example" }
@@ -175,7 +161,7 @@ Allowed fuel codes: `PETROL`, `DIESEL`, `CNG`, `PNG`, `LNG`, `LPG`.
     "latitude": 28.6315,
     "longitude": 77.2167
   },
-  "fuels": ["PETROL", "DIESEL", "CNG"],
+  "fuels": ["PETROL", "DIESEL"],
   "source": { "id": "src_iocl_retail", "name": "IOCL Retail Locator" },
   "links": { "prices": "/v1/stations/outlet_example/prices" }
 }
@@ -199,78 +185,95 @@ Allowed fuel codes: `PETROL`, `DIESEL`, `CNG`, `PNG`, `LNG`, `LPG`.
 }
 ```
 
-## Endpoint contract
+### Source Health
 
-### Public endpoints
+```json
+{
+  "source": {
+    "id": "src_ppac_rsp",
+    "name": "PPAC RSP Archive",
+    "type": "ppac",
+    "reliability_tier": "highest"
+  },
+  "health": {
+    "status": "healthy",
+    "last_crawl_status": "success",
+    "last_successful_crawl_at": "2026-07-09T00:47:00.000Z",
+    "minutes_since_success": 10,
+    "records_seen_last_run": 100,
+    "records_written_last_run": 100,
+    "staleness_level": "fresh"
+  }
+}
+```
 
-| Method | Path | Purpose | Auth |
+## Endpoints
+
+| Method | Path | Scope | Purpose |
 |---|---|---|---|
-| GET | `/v1/health` | Service health. | No |
-| GET | `/v1/prices` | Current or date-specific prices by `pin`, `city`+`state`, `state`, or `outlet_id`. | Yes |
-| GET | `/v1/prices/history` | Historical prices by location selector and fuel/date range. | Yes |
-| GET | `/v1/prices/:id/components` | Price breakup components. | Yes |
-| GET | `/v1/stations` | Station discovery by `pin`, `city`, `state`, `fuel`, `operator`. | Yes |
-| GET | `/v1/stations/:id` | Station detail. | Yes |
-| GET | `/v1/stations/:id/prices` | Station-level prices. | Yes |
-| GET | `/v1/sources` | Active source catalog. | Yes |
-| GET | `/v1/sources/:id` | Source detail. | Yes |
-| GET | `/v1/coverage` | Coverage summary by state/fuel/source type. | Yes |
+| GET | `/v1/health` | none | Service health. |
+| GET | `/v1/prices` | `read:public` | Current/date-specific prices. |
+| GET | `/v1/prices/history` | `read:public` | Historical price range. |
+| GET | `/v1/prices/{id}/components` | `read:public` | Price breakup. |
+| GET | `/v1/stations` | `read:public` | Station discovery. |
+| GET | `/v1/stations/{id}` | `read:public` | Station detail. |
+| GET | `/v1/stations/{id}/prices` | `read:public` | Station price lookup. |
+| GET | `/v1/sources` | `read:public` | Source catalog. |
+| GET | `/v1/sources/{id}` | `read:public` | Source detail by key. |
+| GET | `/v1/coverage` | `read:public` | Coverage by state/fuel/source type. |
+| GET | `/v1/internal/sources/health` | `read:internal` | Source health. |
+| GET | `/v1/internal/crawl-runs` | `read:internal` | Crawl audit list. |
+| POST | `/v1/internal/ingestion/runs` | `write:ingestion` | Manual fixture-backed crawl. |
 
-### Internal endpoints
+## Query Parameters and Examples
 
-| Method | Path | Purpose | Auth |
-|---|---|---|---|
-| GET | `/v1/internal/sources/health` | Per-source crawl and staleness health. | Ops key |
-| GET | `/v1/internal/crawl-runs` | Crawl run audit list. | Ops key |
-| POST | `/v1/internal/ingestion/runs` | Trigger a source crawl manually. | Ops key |
+`GET /v1/prices` requires exactly one location selector:
+`pin`, `city`+`state`, `state`, or `outlet_id`.
 
-## Query rules
+Optional params: `fuel`, `date`, `include=components,outlet,source`,
+`limit`, `offset`.
 
-### `GET /v1/prices`
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8080/v1/prices?pin=110001&fuel=PETROL&include=source,outlet"
+```
 
-Exactly one location selector is required:
+`GET /v1/prices/history` requires one selector, `fuel`, `from`, and `to`.
 
-- `pin=110001`
-- `city=Delhi&state=Delhi`
-- `state=Delhi`
-- `outlet_id=outlet_example`
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8080/v1/prices/history?city=Delhi&state=Delhi&fuel=PETROL&from=2026-07-01&to=2026-07-09"
+```
 
-Optional filters:
+`GET /v1/stations` accepts `pin`, `city`, `state`, `fuel`, `operator`,
+`limit`, and `offset`.
 
-| Param | Type | Default | Notes |
-|---|---|---|---|
-| `fuel` | comma list | all launch fuels | Normalized to uppercase. |
-| `date` | `YYYY-MM-DD` | today in Asia/Kolkata | Applicable date. |
-| `include` | comma list | none | `components`, `outlet`, `source`. |
-| `limit` | int | 50 | Max 100. |
-| `offset` | int | 0 | Pagination offset. |
+`GET /v1/sources` accepts `type`, `active`, `reliability_tier`, `limit`, and
+`offset`.
 
-### `GET /v1/prices/history`
+`GET /v1/internal/crawl-runs` accepts `source_key`, `status`, `from`, `to`,
+`limit`, and `offset`.
 
-Required:
+`POST /v1/internal/ingestion/runs` body:
 
-- One location selector.
-- `fuel`
-- `from=YYYY-MM-DD`
-- `to=YYYY-MM-DD`
+```json
+{ "source_key": "ppac_rsp", "mode": "manual", "reason": "replay failed crawl" }
+```
 
-Default max range: 366 days unless client tier allows more.
+## Error Codes
 
-### `GET /v1/stations`
-
-Supported filters: `pin`, `city`, `state`, `fuel`, `operator`, `limit`, `offset`.
-Phase 2 may add `near=lat,lon` and `radius_km`.
-
-## Validation rules
-
-- `pin` must be exactly six digits.
-- `fuel` is case-insensitive on input and uppercase on output.
-- `date`, `from`, and `to` must be valid ISO dates.
-- `include` may only contain documented values.
-- `limit` max is 100 for read endpoints and 1000 for internal ops endpoints.
-
-## Pagination
-
-`meta.pagination.next_offset` is the offset to use for the next page, or
-`null` when the end of the result set has been reached. `limit` is clamped to
-`[1, 100]` on public endpoints and `[1, 1000]` on internal ops endpoints.
+| Code | HTTP | Meaning |
+|---|---:|---|
+| `CONFIG_ERROR` | 500 | Runtime configuration error. |
+| `VALIDATION_ERROR` | 400 | Invalid query/body. |
+| `AUTH_REQUIRED` | 401 | Missing API key. |
+| `AUTH_INVALID` | 401 | Invalid, mismatched, disabled, or revoked key. |
+| `FORBIDDEN` | 403 | Valid key lacks required scope. |
+| `NOT_FOUND` | 404 | Entity/path not found. |
+| `METHOD_NOT_ALLOWED` | 405 | Path exists but method unsupported. |
+| `RATE_LIMITED` | 429 | Minute rate limit or daily quota exceeded. |
+| `CONFLICT` | 409 | Duplicate/conflicting write. |
+| `UPSTREAM_ERROR` | 502 | Source/vendor failure. |
+| `DB_ERROR` | 500 | Database operation failed. |
+| `NOT_IMPLEMENTED` | 501 | Scaffolded route not implemented. |
+| `INTERNAL_ERROR` | 500 | Unexpected failure. |

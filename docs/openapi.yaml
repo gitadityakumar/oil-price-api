@@ -1,0 +1,508 @@
+openapi: 3.1.0
+info:
+  title: Indian Fuel Price API
+  version: 1.0.0
+  summary: Normalized Indian fuel price facts with provenance.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerApiKey: []
+paths:
+  /v1/health:
+    get:
+      security: []
+      summary: Health check
+      responses:
+        '200':
+          description: Service health.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthEnvelope'
+  /v1/prices:
+    get:
+      summary: Current or date-specific prices
+      parameters:
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/FuelList'
+        - $ref: '#/components/parameters/Date'
+        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/PriceList' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /v1/prices/history:
+    get:
+      summary: Historical prices
+      parameters:
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/OutletId'
+        - $ref: '#/components/parameters/Fuel'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/PriceList' }
+        '401': { $ref: '#/components/responses/Error' }
+  /v1/prices/{id}/components:
+    get:
+      summary: Price components
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Component envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PriceComponents' }
+        '401': { $ref: '#/components/responses/Error' }
+  /v1/stations:
+    get:
+      summary: Station discovery
+      parameters:
+        - $ref: '#/components/parameters/Pin'
+        - $ref: '#/components/parameters/City'
+        - $ref: '#/components/parameters/State'
+        - $ref: '#/components/parameters/Fuel'
+        - name: operator
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/StationList' }
+  /v1/stations/{id}:
+    get:
+      summary: Station detail
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Station envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Station' }
+  /v1/stations/{id}/prices:
+    get:
+      summary: Station-level prices
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/FuelList'
+        - $ref: '#/components/parameters/Date'
+        - $ref: '#/components/parameters/Include'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/PriceList' }
+  /v1/sources:
+    get:
+      summary: Source catalog
+      parameters:
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/SourceType' }
+        - name: active
+          in: query
+          schema: { type: boolean }
+        - name: reliability_tier
+          in: query
+          schema: { $ref: '#/components/schemas/ReliabilityTier' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200': { $ref: '#/components/responses/SourceList' }
+  /v1/sources/{id}:
+    get:
+      summary: Source detail by key
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Source envelope.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Source' }
+  /v1/coverage:
+    get:
+      summary: Coverage aggregation
+      parameters:
+        - $ref: '#/components/parameters/Fuel'
+        - $ref: '#/components/parameters/State'
+        - name: source_type
+          in: query
+          schema: { $ref: '#/components/schemas/SourceType' }
+      responses:
+        '200':
+          description: Coverage rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Coverage' }
+  /v1/internal/sources/health:
+    get:
+      summary: Internal source health
+      security:
+        - bearerApiKey: []
+      responses:
+        '200':
+          description: Source health rows.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/SourceHealth' }
+        '403': { $ref: '#/components/responses/Error' }
+  /v1/internal/crawl-runs:
+    get:
+      summary: Internal crawl audit
+      parameters:
+        - name: source_key
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/CrawlStatus' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Crawl run list.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/CrawlRun' }
+  /v1/internal/ingestion/runs:
+    post:
+      summary: Trigger manual ingestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source_key]
+              properties:
+                source_key: { type: string, examples: [ppac_rsp] }
+                mode: { type: string, const: manual, default: manual }
+                reason: { type: string }
+      responses:
+        '202':
+          description: Accepted run.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          crawl_run_id: { type: integer }
+                          source_key: { type: string }
+                          status: { type: string, const: started }
+components:
+  securitySchemes:
+    bearerApiKey:
+      type: http
+      scheme: bearer
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Pin:
+      name: pin
+      in: query
+      schema: { type: string, pattern: '^[0-9]{6}$' }
+    City:
+      name: city
+      in: query
+      schema: { type: string }
+    State:
+      name: state
+      in: query
+      schema: { type: string }
+    OutletId:
+      name: outlet_id
+      in: query
+      schema: { type: string }
+    Fuel:
+      name: fuel
+      in: query
+      schema: { $ref: '#/components/schemas/FuelCode' }
+    FuelList:
+      name: fuel
+      in: query
+      schema: { type: string, examples: [PETROL,DIESEL] }
+    Date:
+      name: date
+      in: query
+      schema: { type: string, format: date }
+    Include:
+      name: include
+      in: query
+      schema: { type: string, examples: [source,outlet,components] }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+  responses:
+    PriceList:
+      description: Price list envelope.
+      headers:
+        x-rate-limit-limit: { schema: { type: string } }
+        x-rate-limit-remaining: { schema: { type: string } }
+        x-rate-limit-reset: { schema: { type: string } }
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Price' }
+    StationList:
+      description: Station list envelope.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Station' }
+    SourceList:
+      description: Source list envelope.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/SuccessEnvelope'
+              - type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Source' }
+    Error:
+      description: Error envelope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        x-rate-limit-limit: { schema: { type: string } }
+        x-rate-limit-remaining: { schema: { type: string } }
+        x-rate-limit-reset: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    SuccessEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data: true
+        meta:
+          type: object
+          required: [request_id, api_version, served_at]
+          properties:
+            request_id: { type: string }
+            api_version: { type: string, const: v1 }
+            served_at: { type: string, format: date-time }
+            cache:
+              type: object
+              properties:
+                status: { type: string, enum: [MISS, HIT, BYPASS, STALE, STALE_REVALIDATED] }
+                ttl_seconds: { type: [integer, 'null'] }
+            pagination:
+              type: object
+              properties:
+                limit: { type: integer }
+                offset: { type: integer }
+                next_offset: { type: [integer, 'null'] }
+                total: { type: integer }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: true
+            request_id: { type: string }
+    HealthEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                status: { type: string }
+                service: { type: string }
+                version: { type: string }
+    FuelCode:
+      type: string
+      enum: [PETROL, DIESEL, CNG, PNG, LNG, LPG]
+    SourceType:
+      type: string
+      enum: [ppac, omc, cgd, regulator, aggregator, exchange, internal]
+    ReliabilityTier:
+      type: string
+      enum: [highest, high, medium, low]
+    CrawlStatus:
+      type: string
+      enum: [started, success, partial, failed, skipped]
+    Fuel:
+      type: object
+      properties:
+        code: { $ref: '#/components/schemas/FuelCode' }
+        label: { type: string }
+        unit: { type: string }
+    Price:
+      type: object
+      properties:
+        id: { type: string }
+        fuel: { $ref: '#/components/schemas/Fuel' }
+        price:
+          type: object
+          properties:
+            value: { type: number }
+            currency: { type: string }
+            unit: { type: string }
+            kind: { type: string }
+        location: { type: object }
+        outlet: { type: [object, 'null'] }
+        source: { type: object }
+        provenance: { type: object }
+        links: { type: object }
+    PriceComponents:
+      type: object
+      properties:
+        price_id: { type: string }
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              value: { type: [number, 'null'] }
+              unit: { type: [string, 'null'] }
+        source: { type: object }
+        provenance: { type: object }
+    Station:
+      type: object
+      properties:
+        id: { type: string }
+        operator_name: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+        dealer_code: { type: [string, 'null'] }
+        type: { type: string }
+        address: { type: [string, 'null'] }
+        location: { type: object }
+        fuels:
+          type: array
+          items: { $ref: '#/components/schemas/FuelCode' }
+        source: { type: object }
+        links: { type: object }
+    Source:
+      type: object
+      properties:
+        id: { type: string }
+        key: { type: string }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/SourceType' }
+        operator_name: { type: [string, 'null'] }
+        canonical_url: { type: string }
+        reliability_tier: { $ref: '#/components/schemas/ReliabilityTier' }
+        commercial_use_allowed: { type: [boolean, 'null'] }
+        active: { type: boolean }
+    SourceHealth:
+      type: object
+      properties:
+        source: { type: object }
+        health: { type: object }
+    CrawlRun:
+      type: object
+      properties:
+        crawl_run_id: { type: integer }
+        source_key: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+        status: { $ref: '#/components/schemas/CrawlStatus' }
+        records_seen: { type: integer }
+        records_written: { type: integer }
+    Coverage:
+      type: object
+      properties:
+        state_name: { type: string }
+        fuel: { type: string }
+        source_type: { type: string }
+        geography_count: { type: integer }
+        outlet_count: { type: integer }
+        latest_applicable_date: { type: [string, 'null'], format: date }
+        latest_observed_at: { type: [string, 'null'], format: date-time }
