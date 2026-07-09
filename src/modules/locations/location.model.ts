@@ -20,3 +20,22 @@ export interface LocationResolution {
   candidates: ResolvedTarget[];
   warnings: import('./../prices/price.model').Warning[];
 }
+
+export interface LocationSelector {
+  pin?: string;
+  city?: string;
+  state?: string;
+  outletId?: string;
+}
+
+export interface ResolvedLocationTarget {
+  inputType: 'pin' | 'city' | 'state' | 'outlet_id';
+  inputValue: string;
+  geographyIds: number[];
+  outletIds: number[];
+  method: 'direct_station_pin' | 'nearest_station_geo' | 'tariff_area_mapping' | 'city_fallback';
+  priorityRank: number;
+  directFromSource: boolean;
+  derived: boolean;
+  confidenceModifier: number;
+}
