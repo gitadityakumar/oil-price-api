@@ -18,6 +18,8 @@ export type SourceCatalogRow = {
   active: boolean;
   created_at: string;
   updated_at: string;
+  last_successful_crawl_at: string | null;
+  last_observed_price_at: string | null;
 };
 
 export type CrawlRunStatus = 'started' | 'success' | 'partial' | 'failed' | 'skipped';

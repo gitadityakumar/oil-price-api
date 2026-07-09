@@ -6,7 +6,10 @@ export type FuelStationType = 'ro' | 'cng_station' | 'lng_station' | 'png_tariff
 
 export type OutletRow = {
   outlet_id: number;
+  public_id: string;
   source_id: number | null;
+  source_key: string | null;
+  source_name: string | null;
   operator_name: string | null;
   outlet_name: string | null;
   dealer_code: string | null;
@@ -18,6 +21,7 @@ export type OutletRow = {
   longitude: string | null;
   fuel_station_type: FuelStationType;
   metadata_json: Record<string, unknown>;
+  fuels: string[] | null;
   active: boolean;
   created_at: string;
   updated_at: string;

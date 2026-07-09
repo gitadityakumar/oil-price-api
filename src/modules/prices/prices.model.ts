@@ -50,6 +50,39 @@ export type PriceComponentRow = {
 /** Composite price fact as exposed by the read API. */
 export type PriceFactWithProvenance = PriceFactRow & {
   source_key?: string;
-  fuel_code?: string;
+  fuel_code?: FuelCode;
+  fuel_display_name?: string;
+  fuel_retail_unit?: RetailUnit;
   components?: PriceComponentRow[];
+  outlet_public_id?: string | null;
+  geo?: GeographySlices | null;
+  pin_resolution?: PinResolutionSlices | null;
+  source_name?: string | null;
+  source_type?: string | null;
+  operator_name?: string | null;
+  reliability_tier?: string | null;
+};
+
+export type GeographySlices = {
+  geography_id: number;
+  country_code: string;
+  state_name: string | null;
+  state_code: string | null;
+  district_name: string | null;
+  city_name: string | null;
+  area_name: string | null;
+  pincode: string | null;
+  canonical_label: string;
+};
+
+export type PinResolutionSlices = {
+  pincode: string;
+  method: 'direct_station_pin' | 'nearest_station_geo' | 'tariff_area_mapping' | 'city_fallback';
+  priority_rank: number;
+  direct_from_source: boolean;
+  derived: boolean;
+  input_type: 'pin' | 'city_state' | 'state' | 'outlet_id';
+  input_value: string;
+  geography_id: number | null;
+  outlet_id: number | null;
 };
