@@ -1,28 +1,95 @@
-import type { ServerResponse } from 'node:http';
-import type { JsonBody } from './types';
+import type { HttpContext } from './context';
+import { AppError } from '../errors/app-error';
 
-export function sendJson(
-  res: ServerResponse,
-  statusCode: number,
-  body: JsonBody,
-): void {
-  const payload = JSON.stringify(body);
-  res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Content-Length', Buffer.byteLength(payload).toString());
-  res.end(payload);
+export type Headers = Record<string, string>;
+
+function ensureRequestIdHeader(ctx: HttpContext): void {
+  if (!ctx.res.hasHeader('x-request-id')) {
+    ctx.res.setHeader('x-request-id', ctx.requestId);
+  }
 }
 
-export function sendOk(res: ServerResponse, body: JsonBody = { status: 'ok' }): void {
-  sendJson(res, 200, body);
+function writeJson(ctx: HttpContext, statusCode: number, payload: unknown, headers?: Headers): void {
+  if (ctx.responded) return;
+  ctx.responded = true;
+  const body = JSON.stringify(serialize(payload));
+  ctx.res.statusCode = statusCode;
+  ctx.res.setHeader('content-type', 'application/json; charset=utf-8');
+  ctx.res.setHeader('content-length', Buffer.byteLength(body).toString());
+  ensureRequestIdHeader(ctx);
+  if (headers) {
+    for (const [k, v] of Object.entries(headers)) {
+      ctx.res.setHeader(k, v);
+    }
+  }
+  ctx.res.end(body);
 }
 
-export function sendError(
-  res: ServerResponse,
-  statusCode: number,
-  code: string,
-  message: string,
-  details?: unknown,
-): void {
-  sendJson(res, statusCode, { error: { code, message, details } });
+/** Recursively convert Date to ISO strings, BigInt to string. */
+function serialize(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(serialize);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = serialize(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Standard success envelope: { data, meta: { request_id, timestamp } } */
+export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, headers?: Headers): void {
+  const payload = {
+    data,
+    meta: {
+      request_id: ctx.requestId,
+      timestamp: new Date().toISOString(),
+    },
+  };
+  writeJson(ctx, statusCode, payload, headers);
+}
+
+/** Generic JSON response for non-envelope payloads (used rarely). */
+export function json(ctx: HttpContext, statusCode: number, payload: unknown, headers?: Headers): void {
+  writeJson(ctx, statusCode, payload, headers);
+}
+
+export function noContent(ctx: HttpContext): void {
+  if (ctx.responded) return;
+  ctx.responded = true;
+  ctx.res.statusCode = 204;
+  ensureRequestIdHeader(ctx);
+  ctx.res.end();
+}
+
+export function redirect(ctx: HttpContext, location: string, statusCode = 302): void {
+  if (ctx.responded) return;
+  ctx.responded = true;
+  ctx.res.statusCode = statusCode;
+  ctx.res.setHeader('location', location);
+  ensureRequestIdHeader(ctx);
+  ctx.res.end();
+}
+
+/** Standard error envelope: { error: { code, message, details } , meta } */
+export function error(ctx: HttpContext, appError: AppError): void {
+  const payload = {
+    error: {
+      code: appError.code,
+      message: appError.message,
+      details: appError.details ?? null,
+    },
+    meta: {
+      request_id: ctx.requestId,
+      timestamp: new Date().toISOString(),
+    },
+  };
+  writeJson(ctx, appError.statusCode, payload);
+}
+
+export function notImplemented(ctx: HttpContext, route: string): void {
+  error(ctx, new AppError('NOT_IMPLEMENTED', `Route not implemented yet: ${route}`));
 }

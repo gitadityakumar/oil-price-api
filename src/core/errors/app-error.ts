@@ -5,9 +5,11 @@ export type AppErrorCode =
   | 'AUTH_INVALID'
   | 'RATE_LIMITED'
   | 'NOT_FOUND'
+  | 'METHOD_NOT_ALLOWED'
   | 'CONFLICT'
   | 'UPSTREAM_ERROR'
   | 'DB_ERROR'
+  | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR';
 
 export const STATUS_BY_CODE: Record<AppErrorCode, number> = {
@@ -17,9 +19,11 @@ export const STATUS_BY_CODE: Record<AppErrorCode, number> = {
   AUTH_INVALID: 401,
   RATE_LIMITED: 429,
   NOT_FOUND: 404,
+  METHOD_NOT_ALLOWED: 405,
   CONFLICT: 409,
   UPSTREAM_ERROR: 502,
   DB_ERROR: 500,
+  NOT_IMPLEMENTED: 501,
   INTERNAL_ERROR: 500,
 };
 
