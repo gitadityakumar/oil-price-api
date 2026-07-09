@@ -23,3 +23,13 @@ export type ApiUsageDailyRow = {
   api_client_id: number;
   request_count: number;
 };
+
+/** Client resolved by the auth middleware; attached to HttpContext. */
+export type AuthenticatedClient = {
+  api_client_id: number;
+  client_id: string;
+  name: string;
+  tier: string;
+  rate_limit_per_minute: number;
+  quota_per_day: number | null;
+};
