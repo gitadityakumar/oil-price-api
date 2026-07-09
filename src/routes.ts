@@ -1,6 +1,6 @@
 import { Router } from './core/router/router';
 import { registerHealthRoutes } from './modules/health/health.routes';
-import { registerPricesRoutes } from './modules/prices/prices.routes';
+import { registerPriceRoutes } from './modules/prices/price.routes';
 import { registerStationsRoutes } from './modules/stations/stations.routes';
 import { registerSourcesRoutes } from './modules/sources/sources.routes';
 
@@ -11,7 +11,7 @@ import { registerSourcesRoutes } from './modules/sources/sources.routes';
 export function buildRouter(): Router {
   const router = new Router();
   registerHealthRoutes(router);
-  registerPricesRoutes(router);
+  registerPriceRoutes(router);
   registerStationsRoutes(router);
   registerSourcesRoutes(router);
   return router;

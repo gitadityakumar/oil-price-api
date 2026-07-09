@@ -52,17 +52,20 @@ function serialize(value: unknown): unknown {
  * served_at, cache?, pagination? } }. Optional `options.pagination`/`cache`
  * attach those meta blocks.
  */
-export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, options?: { headers?: Headers; cache?: CacheMeta; pagination?: PaginationMeta }): void {
+export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, options?: { headers?: Headers; cache?: CacheMeta; pagination?: PaginationMeta; warnings?: unknown[] }): void {
   const envOptions: EnvelopeOptions = {};
   if (options?.cache) envOptions.cache = options.cache;
   if (options?.pagination) envOptions.pagination = options.pagination;
   const payload = successEnvelope(data, ctx.requestId, envOptions);
+  if (options?.warnings && options.warnings.length > 0) {
+    (payload.meta as { warnings?: unknown[] }).warnings = options.warnings;
+  }
   writeJson(ctx, statusCode, payload, options?.headers);
 }
 
 /** Success envelope with explicit pagination meta. */
-export function okPaginated<T>(ctx: HttpContext, data: T, pagination: PaginationMeta, statusCode = 200, cache?: CacheMeta): void {
-  ok(ctx, data, statusCode, { pagination, cache });
+export function okPaginated<T>(ctx: HttpContext, data: T, pagination: PaginationMeta, statusCode = 200, cacheOrWarnings?: { cache?: CacheMeta; warnings?: unknown[] }): void {
+  ok(ctx, data, statusCode, { pagination, cache: cacheOrWarnings?.cache, warnings: cacheOrWarnings?.warnings });
 }
 
 /** Generic JSON response for non-envelope payloads (used rarely). */
