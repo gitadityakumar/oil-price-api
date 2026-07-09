@@ -61,8 +61,8 @@ test('x-request-id header set on response', async () => {
 
 test('stub route returns 501 NOT_IMPLEMENTED', async () => {
   const app = createApp();
-  // /v1/stations is still a stub until Task 6; /v1/prices is now real.
-  const { statusCode, body } = await call(app, 'GET', '/v1/stations');
+  // Ingestion trigger stays a stub until Task 8.
+  const { statusCode, body } = await call(app, 'POST', '/v1/internal/ingestion/runs');
   assert.equal(statusCode, 501);
   const parsed = JSON.parse(body);
   assert.equal(parsed.error.code, 'NOT_IMPLEMENTED');
