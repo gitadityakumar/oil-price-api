@@ -47,3 +47,15 @@ export type FinishCrawlRunInput = {
   error_code?: string | null;
   error_message?: string | null;
 };
+
+export type IngestionRunRequest = {
+  source_key: string;
+  mode: 'manual';
+  reason?: string;
+};
+
+export type IngestionRunResponse = {
+  crawl_run_id: number;
+  source_key: string;
+  status: 'started' | 'queued' | 'skipped';
+};
