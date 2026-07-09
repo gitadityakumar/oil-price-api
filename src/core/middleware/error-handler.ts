@@ -8,6 +8,7 @@ export const errorHandlerMiddleware: Middleware = async (ctx, next) => {
     await next();
   } catch (err) {
     const appError = AppError.fromUnknown(err);
+    ctx.errorCode = appError.code;
     if (ctx.responded) {
       // Headers already sent; we can only log.
       ctx.res.destroy?.();

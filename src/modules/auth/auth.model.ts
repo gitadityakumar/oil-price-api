@@ -11,6 +11,7 @@ export type ApiClientRow = {
   key_hash: string;
   status: ApiClientStatus;
   tier: string;
+  scopes: string[];
   rate_limit_per_minute: number;
   quota_per_day: number | null;
   created_at: string;
@@ -30,6 +31,15 @@ export type AuthenticatedClient = {
   client_id: string;
   name: string;
   tier: string;
+  scopes: string[];
   rate_limit_per_minute: number;
   quota_per_day: number | null;
+};
+
+export type ApiKeyEnvironment = 'live' | 'test';
+
+export type GeneratedApiKey = {
+  client_id: string;
+  api_key: string;
+  key_hash: string;
 };

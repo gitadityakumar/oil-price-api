@@ -8,8 +8,10 @@ import { HealthService } from '../../src/modules/health/health.service';
 import { StationService } from '../../src/modules/stations/station.service';
 import { SourceService } from '../../src/modules/sources/source.service';
 import { CoverageService } from '../../src/modules/coverage/coverage.service';
+import { generateApiKey } from '../../src/modules/auth/api-key-generator';
 
 const DB_AVAILABLE = Boolean(process.env.DATABASE_URL);
+let seededApiKey: string | undefined;
 
 async function ensureSeeded(): Promise<void> {
   const { getPool, closePool } = await import('../../src/db/pool');
@@ -22,10 +24,19 @@ async function ensureSeeded(): Promise<void> {
       '003_outlet_public_id.sql',
       '004_fixture_seed.sql',
       '005_seed_reference_sources.sql',
+      '006_api_client_scopes.sql',
     ];
     for (const file of files) {
       await client.query(await readFile(join(process.cwd(), 'migrations', file), 'utf8'));
     }
+    const generated = generateApiKey({ clientId: 'cli_task6_test' });
+    await client.query(
+      `insert into api_client (client_id, name, key_hash, status, tier, scopes, rate_limit_per_minute, quota_per_day)
+       values ($1, 'Task 6 Test Client', $2, 'active', 'test', array['read:public'], 1000, null)
+       on conflict (client_id) do update set key_hash = excluded.key_hash, status = 'active', scopes = excluded.scopes`,
+      [generated.client_id, generated.key_hash],
+    );
+    seededApiKey = generated.api_key;
   } finally {
     client.release();
   }
@@ -62,9 +73,9 @@ function fakeRes(): { res: ServerResponse; state: { body: string; statusCode: nu
   return { res, state };
 }
 
-async function call(method: string, path: string) {
+async function call(method: string, path: string, headers: Record<string, string> = {}) {
   const app = createApp();
-  const req = fakeReq(method, path);
+  const req = fakeReq(method, path, undefined, headers);
   const { res, state } = fakeRes();
   await app.handle(req, res);
   return { statusCode: state.statusCode, body: JSON.parse(state.body), headers: state.headers };
@@ -108,7 +119,11 @@ test('stations: detail by public id', { skip: !DB_AVAILABLE }, async () => {
 
 test('route /v1/stations/:id/prices delegates to price lookup', { skip: !DB_AVAILABLE }, async () => {
   await ensureSeeded();
-  const res = await call('GET', '/v1/stations/outlet_example/prices?date=2026-07-09&fuel=petrol&include=outlet,source');
+  const res = await call(
+    'GET',
+    '/v1/stations/outlet_example/prices?date=2026-07-09&fuel=petrol&include=outlet,source',
+    { authorization: `Bearer ${seededApiKey}` },
+  );
   assert.equal(res.statusCode, 200);
   assert.ok(res.body.data.length >= 1);
   assert.equal(res.body.data[0].fuel.code, 'PETROL');

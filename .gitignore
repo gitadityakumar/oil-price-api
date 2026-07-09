@@ -32,6 +32,7 @@ Thumbs.db
 
 # Agent task materials (internal scratch / scaffolding prompts)
 .agents/
+.codex/
 
 # TypeScript build info
 *.tsbuildinfo

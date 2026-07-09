@@ -1,9 +1,16 @@
 import type { HttpContext, HttpMethod } from '../http/context';
 import { compilePattern, matchPattern } from './path-pattern';
 import { AppError } from '../errors/app-error';
+import { requireApiKeyAuth } from '../middleware/auth-required';
+import { requireScopes } from '../middleware/scope-required';
+import { enforceRateLimit } from '../middleware/rate-limit';
 
 export type RouteHandler = (ctx: HttpContext) => Promise<void> | void;
-export type RouteOptions = { auth?: boolean; rateLimit?: boolean };
+export type RouteOptions = {
+  auth?: 'none' | 'api_key';
+  scopes?: readonly string[];
+  rateLimit?: boolean;
+};
 
 interface Route {
   method: HttpMethod;
@@ -52,6 +59,17 @@ export class Router {
       pathMatched = true;
       if (route.method !== method) continue;
       ctx.params = params;
+      ctx.routePattern = route.pattern;
+      if ((route.options.auth ?? 'none') === 'api_key') {
+        await requireApiKeyAuth(ctx);
+        if (!ctx.res.hasHeader('cache-control')) {
+          ctx.res.setHeader('cache-control', 'no-store');
+        }
+        requireScopes(ctx, route.options.scopes ?? []);
+        if (route.options.rateLimit !== false) {
+          await enforceRateLimit(ctx);
+        }
+      }
       await route.handler(ctx);
       return;
     }

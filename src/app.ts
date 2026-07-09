@@ -11,6 +11,7 @@ import { jsonBodyMiddleware } from './core/http/body';
 import { buildRouter } from './routes';
 import { logger } from './core/logging/logger';
 import { AppError } from './core/errors/app-error';
+import { requestMetricsMiddleware } from './core/observability/request-metrics';
 
 const log = logger.child('app');
 
@@ -30,8 +31,10 @@ export class App {
       requestIdMiddleware,
       accessLogMiddleware,
       corsMiddleware(options.cors),
+      securityHeadersMiddleware,
       jsonBodyMiddleware(),
       errorHandlerMiddleware,
+      requestMetricsMiddleware,
       ...(options.middlewares ?? []),
       notFoundMiddleware,
     ];
@@ -87,3 +90,13 @@ export class App {
 export function createApp(options?: AppOptions): App {
   return new App(options);
 }
+
+const securityHeadersMiddleware: Middleware = async (ctx, next) => {
+  ctx.res.setHeader('x-content-type-options', 'nosniff');
+  ctx.res.setHeader('x-frame-options', 'DENY');
+  ctx.res.setHeader('referrer-policy', 'no-referrer');
+  if (ctx.path.startsWith('/v1/internal/')) {
+    ctx.res.setHeader('cache-control', 'no-store');
+  }
+  await next();
+};

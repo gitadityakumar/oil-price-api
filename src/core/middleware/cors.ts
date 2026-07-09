@@ -2,7 +2,7 @@ import type { Middleware } from './types';
 
 const DEFAULT_ALLOW_ORIGIN = '*';
 const DEFAULT_ALLOW_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
-const DEFAULT_ALLOW_HEADERS = 'content-type, authorization, x-request-id';
+const DEFAULT_ALLOW_HEADERS = 'content-type, authorization, x-client-id, x-api-key, x-request-id';
 const MAX_AGE = '600';
 
 export interface CorsOptions {

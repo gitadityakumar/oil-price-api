@@ -59,12 +59,12 @@ test('x-request-id header set on response', async () => {
   assert.ok(headers['x-request-id'], 'x-request-id set');
 });
 
-test('ingestion endpoint validates required body', async () => {
+test('ingestion endpoint requires auth before controller validation', async () => {
   const app = createApp();
   const { statusCode, body } = await call(app, 'POST', '/v1/internal/ingestion/runs');
-  assert.equal(statusCode, 400);
+  assert.equal(statusCode, 401);
   const parsed = JSON.parse(body);
-  assert.equal(parsed.error.code, 'VALIDATION_ERROR');
+  assert.equal(parsed.error.code, 'AUTH_REQUIRED');
 });
 
 test('unknown path returns 404 envelope', async () => {

@@ -3,5 +3,5 @@ import { HealthController } from './health.controller';
 
 export function registerHealthRoutes(router: Router): void {
   const controller = new HealthController();
-  router.get('/v1/health', (ctx) => controller.health(ctx));
+  router.get('/v1/health', (ctx) => controller.health(ctx), { auth: 'none', rateLimit: false });
 }

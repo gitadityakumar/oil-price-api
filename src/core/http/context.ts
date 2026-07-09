@@ -13,6 +13,9 @@ export interface HttpContext {
   headers: Record<string, string | string[] | undefined>;
   body?: unknown;
   client?: AuthenticatedClient;
+  routePattern?: string;
+  cacheStatus?: string;
+  errorCode?: string;
   startedAt: number;
   /** Internal: set by middleware/router to indicate a response was sent. */
   responded?: boolean;

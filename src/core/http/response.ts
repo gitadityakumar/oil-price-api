@@ -54,7 +54,10 @@ function serialize(value: unknown): unknown {
  */
 export function ok<T>(ctx: HttpContext, data: T, statusCode = 200, options?: { headers?: Headers; cache?: CacheMeta; pagination?: PaginationMeta; warnings?: unknown[] }): void {
   const envOptions: EnvelopeOptions = {};
-  if (options?.cache) envOptions.cache = options.cache;
+  if (options?.cache) {
+    envOptions.cache = options.cache;
+    ctx.cacheStatus = options.cache.status;
+  }
   if (options?.pagination) envOptions.pagination = options.pagination;
   const payload = successEnvelope(data, ctx.requestId, envOptions);
   if (options?.warnings && options.warnings.length > 0) {
@@ -92,6 +95,7 @@ export function redirect(ctx: HttpContext, location: string, statusCode = 302): 
 
 /** Standard error envelope: { error: { code, message, details, request_id } } */
 export function error(ctx: HttpContext, appError: AppError): void {
+  ctx.errorCode = appError.code;
   const payload = errorEnvelope(ctx.requestId, appError.code, appError.message, appError.details);
   writeJson(ctx, appError.statusCode, payload);
 }
