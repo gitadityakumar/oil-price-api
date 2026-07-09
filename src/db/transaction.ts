@@ -9,10 +9,10 @@ const log = logger.child('tx');
  * Run a query within the transaction's client. Repositories call this as
  * `query(text, params)` without passing the client.
  */
-export type TxQuery = <T extends { rows: unknown[] } = { rows: Record<string, unknown>[] }>(
+export type TxQuery = <T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
   params?: unknown[],
-) => Promise<{ rows: T['rows']; rowCount: number }>;
+) => Promise<{ rows: T[]; rowCount: number }>;
 
 /**
  * Open a pooled client, BEGIN, run `fn`, COMMIT on success / ROLLBACK on error.
@@ -26,7 +26,8 @@ export async function withTransaction<T>(
   let released = false;
   try {
     await client.query('BEGIN');
-    const txQuery: TxQuery = (text, params) => queryOn(client, text, params) as Promise<{ rows: Record<string, unknown>[]; rowCount: number }>;
+    const txQuery: TxQuery = ((text: string, params?: unknown[]) =>
+      queryOn(client, text, params)) as unknown as TxQuery;
     let result: T;
     try {
       result = await fn({ client, query: txQuery });
