@@ -10,8 +10,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "node --test dist/test/**/*.test.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "lint": "npm run typecheck",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/migrate.ts --seed"
