@@ -8,7 +8,7 @@
  * success puts it in meta.
  */
 
-export type CacheStatus = 'MISS' | 'HIT' | 'BYPASS' | 'STALE';
+export type CacheStatus = 'MISS' | 'HIT' | 'BYPASS' | 'STALE' | 'STALE_REVALIDATED';
 
 export interface CacheMeta {
   status: CacheStatus;
