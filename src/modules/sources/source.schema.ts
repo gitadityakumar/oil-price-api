@@ -29,7 +29,13 @@ export function mapSource(row: SourceCatalogRow): SourceSchema {
     reliability_tier: row.reliability_tier,
     commercial_use_allowed: row.commercial_use_allowed,
     active: row.active,
-    last_successful_crawl_at: row.last_successful_crawl_at,
-    last_observed_price_at: row.last_observed_price_at,
+    last_successful_crawl_at: toIsoOrNull(row.last_successful_crawl_at),
+    last_observed_price_at: toIsoOrNull(row.last_observed_price_at),
   };
+}
+
+function toIsoOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  return new Date(String(value)).toISOString();
 }

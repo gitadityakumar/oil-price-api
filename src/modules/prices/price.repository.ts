@@ -64,9 +64,9 @@ function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
     outlet_id: (r.outlet_id as number | null) ?? null,
     geography_id: (r.geography_id as number | null) ?? null,
     fuel_id: r.fuel_id as number,
-    applicable_date: r.applicable_date as string,
-    effective_at: (r.effective_at as string | null) ?? null,
-    observed_at: r.observed_at as string,
+    applicable_date: toDateOnly(r.applicable_date),
+    effective_at: toIsoOrNull(r.effective_at),
+    observed_at: toIso(r.observed_at),
     price_value: String(r.price_value),
     currency_code: r.currency_code as string,
     price_kind: r.price_kind as 'retail' | 'breakup_final' | 'tax_exclusive' | 'wholesale_context',
@@ -102,6 +102,21 @@ function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
             canonical_label: (r.canonical_label as string | null) ?? '',
           },
   };
+}
+
+function toDateOnly(value: unknown): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
+function toIso(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  return new Date(String(value)).toISOString();
+}
+
+function toIsoOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return toIso(value);
 }
 
 export async function findPriceFactsByTargets(input: {

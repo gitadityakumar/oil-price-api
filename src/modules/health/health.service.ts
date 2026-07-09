@@ -1,13 +1,24 @@
-import type { HealthSummary } from './health.model';
+/**
+ * Public health service boundary. Returns minimal process health with no
+ * secrets (DB URLs, env values, dependency versions).
+ */
 
-/** Health service boundary (no HTTP). Real DB/cache probes come in Task 6. */
+export interface PublicHealthSummary {
+  status: 'ok' | 'degraded' | 'down';
+  service: string;
+  version: string;
+  time: string;
+}
+
+export const SERVICE_NAME = 'indian-fuel-price-api';
+export const SERVICE_VERSION = '1.0.0';
+
 export class HealthService {
-  async getHealth(): Promise<HealthSummary> {
+  async getHealth(): Promise<PublicHealthSummary> {
     return {
       status: 'ok',
-      checks: [
-        { name: 'server', status: 'ok' },
-      ],
+      service: SERVICE_NAME,
+      version: SERVICE_VERSION,
       time: new Date().toISOString(),
     };
   }

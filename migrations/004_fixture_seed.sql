@@ -72,9 +72,20 @@ values
   (8004, 7001, 'dealer_commission',  3.76, 'INR/LTR')
 on conflict (component_id) do nothing;
 
+insert into crawl_run (crawl_run_id, source_id, started_at, finished_at, status, http_status, records_seen, records_written, notes)
+select 6001, s.source_id, '2026-07-09T00:45:00.000Z', '2026-07-09T00:46:00.000Z', 'success', 200, 2, 2, 'fixture successful crawl'
+  from source_catalog s where s.source_key = 'ppac_rsp'
+on conflict (crawl_run_id) do nothing;
+
+insert into crawl_run (crawl_run_id, source_id, started_at, finished_at, status, http_status, records_seen, records_written, notes)
+select 6002, s.source_id, '2026-07-09T00:50:00.000Z', '2026-07-09T00:51:00.000Z', 'success', 200, 1, 1, 'fixture outlet crawl'
+  from source_catalog s where s.source_key = 'iocl_retail'
+on conflict (crawl_run_id) do nothing;
+
 -- Force the sequence past inserted ids so re-runs do not collide.
 select setval(pg_get_serial_sequence('price_fact_daily','price_fact_id'), greatest(9000, (select coalesce(max(price_fact_id),0) from price_fact_daily)));
 select setval(pg_get_serial_sequence('outlet_dim','outlet_id'),         greatest(9999, (select coalesce(max(outlet_id),0) from outlet_dim)));
 select setval(pg_get_serial_sequence('geography_dim','geography_id'),   greatest(9999, (select coalesce(max(geography_id),0) from geography_dim)));
 select setval(pg_get_serial_sequence('pincode_resolution','resolution_id'), greatest(9999, (select coalesce(max(resolution_id),0) from pincode_resolution)));
 select setval(pg_get_serial_sequence('price_component_fact','component_id'), greatest(9999, (select coalesce(max(component_id),0) from price_component_fact)));
+select setval(pg_get_serial_sequence('crawl_run','crawl_run_id'), greatest(9999, (select coalesce(max(crawl_run_id),0) from crawl_run)));

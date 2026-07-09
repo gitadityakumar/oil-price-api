@@ -28,7 +28,7 @@ Thumbs.db
 
 # Test / coverage
 .nyc_output/
-coverage/
+/coverage/
 
 # Agent task materials (internal scratch / scaffolding prompts)
 .agents/
