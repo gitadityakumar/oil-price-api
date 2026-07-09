@@ -4,7 +4,7 @@ import { registerPriceRoutes } from './modules/prices/price.routes';
 import { registerStationRoutes } from './modules/stations/station.routes';
 import { registerSourceRoutes } from './modules/sources/source.routes';
 import { registerCoverageRoutes } from './modules/coverage/coverage.routes';
-import { stubController } from './modules/_shared/stub.controller';
+import { registerIngestionRoutes } from './modules/ingestion/ingestion.routes';
 
 /**
  * Central route registration. Each register* function only maps HTTP method/path
@@ -17,9 +17,7 @@ export function buildRouter(): Router {
   registerStationRoutes(router);
   registerSourceRoutes(router);
   registerCoverageRoutes(router);
-
-  // Internal ingestion trigger stays a stub until Task 8.
-  router.post('/v1/internal/ingestion/runs', stubController('POST /v1/internal/ingestion/runs'));
+  registerIngestionRoutes(router);
 
   return router;
 }

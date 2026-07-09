@@ -137,6 +137,8 @@ export async function findPriceFactsByTargets(input: {
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
       left join geography_dim og on og.pincode = o.pincode
      where f.fuel_code = any($1::text[])
+       and s.source_key not in ('pngrb_reference', 'ppac_tax_reference', 'igx_wholesale_context')
+       and p.price_kind <> 'wholesale_context'
        and p.applicable_date = $2
        and (
          (cardinality($3::bigint[]) > 0 and p.geography_id = any($3::bigint[]))
@@ -174,6 +176,8 @@ export async function findHistoricalPriceFacts(input: {
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
       left join geography_dim og on og.pincode = o.pincode
      where f.fuel_code = $1::text
+       and s.source_key not in ('pngrb_reference', 'ppac_tax_reference', 'igx_wholesale_context')
+       and p.price_kind <> 'wholesale_context'
        and p.applicable_date between $2 and $3
        and (
          (cardinality($4::bigint[]) > 0 and p.geography_id = any($4::bigint[]))
@@ -231,6 +235,7 @@ export async function countPriceFactsByTargets(input: {
       from price_fact_daily p
       join fuel_dim f on f.fuel_id = p.fuel_id
      where f.fuel_code = any($1::text[])
+       and p.price_kind <> 'wholesale_context'
        and p.applicable_date = $2
        and (
          (cardinality($3::bigint[]) > 0 and p.geography_id = any($3::bigint[]))
@@ -253,6 +258,7 @@ export async function countHistoricalPriceFacts(input: {
       from price_fact_daily p
       join fuel_dim f on f.fuel_id = p.fuel_id
      where f.fuel_code = $1::text
+       and p.price_kind <> 'wholesale_context'
        and p.applicable_date between $2 and $3
        and (
          (cardinality($4::bigint[]) > 0 and p.geography_id = any($4::bigint[]))

@@ -59,13 +59,12 @@ test('x-request-id header set on response', async () => {
   assert.ok(headers['x-request-id'], 'x-request-id set');
 });
 
-test('stub route returns 501 NOT_IMPLEMENTED', async () => {
+test('ingestion endpoint validates required body', async () => {
   const app = createApp();
-  // Ingestion trigger stays a stub until Task 8.
   const { statusCode, body } = await call(app, 'POST', '/v1/internal/ingestion/runs');
-  assert.equal(statusCode, 501);
+  assert.equal(statusCode, 400);
   const parsed = JSON.parse(body);
-  assert.equal(parsed.error.code, 'NOT_IMPLEMENTED');
+  assert.equal(parsed.error.code, 'VALIDATION_ERROR');
 });
 
 test('unknown path returns 404 envelope', async () => {

@@ -195,10 +195,18 @@ const DB_AVAILABLE = Boolean(process.env.DATABASE_URL);
 async function ensureSeeded(): Promise<void> {
   const { getPool, closePool } = await import('../../src/db/pool');
   const pool = getPool();
-  const sql = await readFile(join(process.cwd(), 'migrations/004_fixture_seed.sql'), 'utf8');
   const client = await pool.connect();
   try {
-    await client.query(sql);
+    const files = [
+      '001_initial_schema.sql',
+      '002_seed_core_dimensions.sql',
+      '003_outlet_public_id.sql',
+      '004_fixture_seed.sql',
+      '005_seed_reference_sources.sql',
+    ];
+    for (const file of files) {
+      await client.query(await readFile(join(process.cwd(), 'migrations', file), 'utf8'));
+    }
   } finally {
     client.release();
   }
