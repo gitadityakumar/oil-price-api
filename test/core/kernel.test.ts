@@ -49,7 +49,8 @@ test('health returns success envelope', async () => {
   const parsed = JSON.parse(body);
   assert.equal(parsed.data.status, 'ok');
   assert.ok(parsed.meta.request_id, 'request_id present');
-  assert.ok(parsed.meta.timestamp, 'timestamp present');
+  assert.equal(parsed.meta.api_version, 'v1');
+  assert.ok(parsed.meta.served_at, 'served_at present');
 });
 
 test('x-request-id header set on response', async () => {
