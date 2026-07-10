@@ -39,8 +39,12 @@ Minute limits use `api_client.rate_limit_per_minute`. Daily quotas use
 `api_client.quota_per_day` and `api_usage_daily`. Health checks do not consume
 quota.
 
-Redis is used when `REDIS_URL` is configured. The memory limiter is acceptable
-for local development; production without Redis logs a warning.
+Redis is used for distributed minute limits and caching. The memory limiter is
+available only for development and deterministic tests. Production startup
+fails when `REDIS_URL` is absent, and production Redis failures fail closed.
+
+Daily quota admission is an atomic PostgreSQL operation. Redis minute admission
+uses one Lua operation that increments and sets expiry atomically.
 
 ## Headers
 

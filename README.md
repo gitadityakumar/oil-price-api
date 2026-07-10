@@ -10,8 +10,11 @@ mode, and PostgreSQL via raw `pg`.
 ## Quick start
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
+npm run db:migrate
+npm run db:seed
+npm run db:fixtures # local fixture data only
 npm run dev      # tsx watch src/server.ts
 ```
 
@@ -22,9 +25,12 @@ npm run dev      # tsx watch src/server.ts
 | `npm run dev` | Run with tsx watch reload. |
 | `npm run build` | Compile TypeScript to `dist/`. |
 | `npm start` | Run compiled server (`node dist/server.js`). |
-| `npm test` | Run Node's built-in test runner. |
+| `npm test` | Run Node's built-in test runner serially. |
+| `npm run test:ci` | Require PostgreSQL and run all tests plus the DB smoke gate. |
 | `npm run typecheck` | Type check without emitting. |
-| `npm run lint` | Alias of `typecheck` for now. |
+| `npm run lint` | Run typed ESLint rules. |
+| `npm run openapi:lint` | Validate OpenAPI with zero warnings. |
+| `npm run db:fixtures` | Load local/test fixture data; never part of production seed. |
 
 ## Documentation
 
@@ -41,6 +47,8 @@ npm run dev      # tsx watch src/server.ts
 
 ## Status
 
-Release-candidate guardrails are implemented through Task 10: schema,
-read APIs, fixture ingestion, API key auth, scopes, rate limits, docs, OpenAPI,
-and Node test coverage.
+The local fixture-backed MVP has release guardrails, Docker-compatible
+PostgreSQL/Redis/MinIO configuration, transactional ingestion, and required CI
+gates. Production live sources remain fail-closed: each source requires legal
+approval and a validated live adapter before `ingestion_enabled` and
+`public_display_enabled` may be set.

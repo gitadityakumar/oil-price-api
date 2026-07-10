@@ -22,10 +22,12 @@ The service uses native `node:http`.
 ```bash
 npm run db:migrate
 npm run db:seed
+# Local/test only:
+npm run db:fixtures
 ```
 
-`db:migrate` applies non-seed migrations in lexical order. `db:seed` applies
-schema migrations and seed files.
+`db:migrate` applies schema migrations. `db:seed` applies schema and reference
+seeds but excludes fixtures. `db:fixtures` explicitly loads local/test data.
 
 ## Create API Clients
 
@@ -39,17 +41,18 @@ client secret manager. The database stores only the HMAC hash.
 
 ## Start Scheduler and Worker
 
-Fixture scheduler:
+Start the durable PostgreSQL-backed scheduler and worker as separate processes:
 
 ```bash
 npx tsx src/workers/scheduler.ts
+npx tsx src/workers/ingestion-worker.ts
 ```
 
-Single source fixture worker:
+Run fixture ingestion directly for development:
 
 ```bash
-npx tsx src/workers/ingestion-worker.ts ppac_rsp
-npx tsx src/workers/ingestion-worker.ts igl_prices
+npx tsx src/workers/ingestion-worker.ts --fixture ppac_rsp
+npx tsx src/workers/ingestion-worker.ts --fixture igl_prices
 ```
 
 ## Inspect Source Health
@@ -72,6 +75,10 @@ curl -X POST \
 ```
 
 The key needs `write:ingestion`.
+
+Manual and scheduled live runs are accepted only when the source is active,
+`ingestion_enabled=true`, and its adapter declares validated live support.
+Unverified adapters are rejected before a crawl or job is created.
 
 ## Stale or Expired Source Response
 

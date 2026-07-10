@@ -16,17 +16,23 @@
 - [x] Fixture ingestion can run without live network access.
 - [x] OpenAPI spec matches the MVP route surface.
 - [x] Runbook has stale-source troubleshooting steps.
+- [x] PostgreSQL-backed tests run serially and are required by CI.
+- [x] Redis cache and atomic minute limiter have a local integration test.
+- [x] S3-compatible artifact storage is implemented and verified against local MinIO.
+- [x] Source rights and public display default to fail-closed.
+- [ ] Legal approval recorded for each production display source.
+- [ ] At least one liquid and one gas live adapter pass real-source canaries.
+- [ ] Production source rows are explicitly enabled after legal and canary approval.
 
 ## Quality Gates
 
 Run before release:
 
 ```bash
-npm run build
-npm run typecheck
-npm test
-npm run lint
+npm run check
 npm run db:migrate
+npm run db:seed
+npm run test:ci
 ```
 
 The test suite includes a forbidden-framework guard for Express, Fastify, Koa,
