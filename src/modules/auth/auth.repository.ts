@@ -16,6 +16,7 @@ export interface AuthRepository {
   touchLastUsed(apiClientId: number): Promise<void>;
   getDailyUsage(apiClientId: number, usageDate: string): Promise<number>;
   incrementDailyUsage(apiClientId: number, usageDate: string): Promise<void>;
+  consumeDailyQuota(apiClientId: number, usageDate: string, quota: number | null): Promise<{ allowed: boolean; count: number }>;
   createClient(input: CreateApiClientInput): Promise<ApiClientRow>;
 }
 
@@ -53,6 +54,21 @@ export class PgAuthRepository implements AuthRepository {
        do update set request_count = api_usage_daily.request_count + 1`,
       [usageDate, apiClientId],
     );
+  }
+
+  async consumeDailyQuota(apiClientId: number, usageDate: string, quota: number | null): Promise<{ allowed: boolean; count: number }> {
+    if (quota !== null && quota <= 0) return { allowed: false, count: 0 };
+    const consumed = await query<{ request_count: string | number }>(
+      `insert into api_usage_daily (usage_date, api_client_id, request_count)
+       values ($1::date, $2, 1)
+       on conflict (usage_date, api_client_id) do update
+         set request_count = api_usage_daily.request_count + 1
+       where $3::integer is null or api_usage_daily.request_count < $3
+       returning request_count`,
+      [usageDate, apiClientId, quota],
+    );
+    if (consumed.rows[0]) return { allowed: true, count: Number(consumed.rows[0].request_count) };
+    return { allowed: false, count: await this.getDailyUsage(apiClientId, usageDate) };
   }
 
   async createClient(input: CreateApiClientInput): Promise<ApiClientRow> {
@@ -110,6 +126,15 @@ export class MemoryAuthRepository implements AuthRepository {
   async incrementDailyUsage(apiClientId: number, usageDate: string): Promise<void> {
     const key = `${usageDate}:${apiClientId}`;
     this.usage.set(key, (this.usage.get(key) ?? 0) + 1);
+  }
+
+  async consumeDailyQuota(apiClientId: number, usageDate: string, quota: number | null): Promise<{ allowed: boolean; count: number }> {
+    const key = `${usageDate}:${apiClientId}`;
+    const current = this.usage.get(key) ?? 0;
+    if (quota !== null && current >= quota) return { allowed: false, count: current };
+    const count = current + 1;
+    this.usage.set(key, count);
+    return { allowed: true, count };
   }
 
   async createClient(input: CreateApiClientInput): Promise<ApiClientRow> {

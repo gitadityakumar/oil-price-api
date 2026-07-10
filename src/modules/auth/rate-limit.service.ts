@@ -1,7 +1,7 @@
-import { Socket } from 'node:net';
 import { config } from '../../config/env';
 import { AppError } from '../../core/errors/app-error';
 import { logger } from '../../core/logging/logger';
+import { getRedisClient, withRedisDeadline } from '../../core/redis/redis-client';
 import { PgAuthRepository, type AuthRepository } from './auth.repository';
 import type { AuthenticatedClient } from './auth.model';
 
@@ -13,44 +13,52 @@ export type RateLimitResult = {
   resetAt: number;
 };
 
-type WindowState = {
-  count: number;
-  resetAt: number;
-};
+type WindowState = { count: number; resetAt: number };
+
+const CONSUME_MINUTE_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIREAT', KEYS[1], ARGV[1]) end
+return count
+`;
 
 export class RateLimitService {
   private readonly windows = new Map<string, WindowState>();
   private readonly dailyUsage = new Map<string, number>();
-  private warnedMemoryProduction = false;
 
-  constructor(private readonly repository: AuthRepository = new PgAuthRepository()) {
-    if (config.redisUrl) {
-      log.info('redis rate limit adapter configured');
-    }
+  constructor(
+    private readonly repository: AuthRepository = new PgAuthRepository(),
+    private readonly useRedis = Boolean(config.redisUrl) && config.nodeEnv !== 'test',
+  ) {
     if (config.nodeEnv === 'production' && !config.redisUrl) {
-      this.warnProductionMemory();
+      throw new AppError('CONFIG_ERROR', 'REDIS_URL is required for production rate limiting');
     }
   }
 
   async consume(client: AuthenticatedClient, now = new Date()): Promise<RateLimitResult> {
-    if (config.nodeEnv === 'production' && !config.redisUrl) this.warnProductionMemory();
-
+    this.pruneMemory(now);
     const dateKey = yyyyMMdd(now);
-    const usage = await this.getDailyUsage(client, dateKey);
-    if (client.quota_per_day !== null && usage >= client.quota_per_day) {
-      throw new AppError('RATE_LIMITED', 'Daily quota exceeded', 429);
+    const daily = await this.consumeDaily(client, dateKey);
+    if (!daily.allowed) {
+      throw new AppError('RATE_LIMITED', 'Daily quota exceeded', 429, {
+        limit: client.quota_per_day ?? 0,
+        remaining: 0,
+        resetAt: nextDayEpochSeconds(now),
+      });
     }
 
     const resetAt = nextMinuteEpochSeconds(now);
-    const count = config.redisUrl
+    const count = this.useRedis
       ? await this.consumeRedisMinute(client, now, resetAt)
       : this.consumeMemoryMinute(client, now, resetAt);
 
     if (count > client.rate_limit_per_minute) {
-      throw new AppError('RATE_LIMITED', 'Rate limit exceeded', 429);
+      throw new AppError('RATE_LIMITED', 'Rate limit exceeded', 429, {
+        limit: client.rate_limit_per_minute,
+        remaining: 0,
+        resetAt,
+      });
     }
 
-    await this.incrementDailyUsage(client, dateKey);
     return {
       limit: client.rate_limit_per_minute,
       remaining: Math.max(0, client.rate_limit_per_minute - count),
@@ -63,36 +71,26 @@ export class RateLimitService {
     this.dailyUsage.clear();
   }
 
-  private async getDailyUsage(client: AuthenticatedClient, dateKey: string): Promise<number> {
+  private async consumeDaily(client: AuthenticatedClient, dateKey: string): Promise<{ allowed: boolean; count: number }> {
     try {
-      return await this.repository.getDailyUsage(client.api_client_id, dateKey);
-    } catch {
-      return this.dailyUsage.get(`${dateKey}:${client.api_client_id}`) ?? 0;
+      return await this.repository.consumeDailyQuota(client.api_client_id, dateKey, client.quota_per_day);
+    } catch (error) {
+      if (config.nodeEnv === 'production') {
+        throw new AppError('DB_ERROR', 'Daily quota store unavailable', 500, undefined, error);
+      }
+      const key = `${dateKey}:${client.api_client_id}`;
+      const current = this.dailyUsage.get(key) ?? 0;
+      if (client.quota_per_day !== null && current >= client.quota_per_day) return { allowed: false, count: current };
+      const count = current + 1;
+      this.dailyUsage.set(key, count);
+      return { allowed: true, count };
     }
-  }
-
-  private async incrementDailyUsage(client: AuthenticatedClient, dateKey: string): Promise<void> {
-    const key = `${dateKey}:${client.api_client_id}`;
-    this.dailyUsage.set(key, (this.dailyUsage.get(key) ?? 0) + 1);
-    try {
-      await this.repository.incrementDailyUsage(client.api_client_id, dateKey);
-    } catch {
-      // Local/test fallback is best-effort memory.
-    }
-  }
-
-  private warnProductionMemory(): void {
-    if (this.warnedMemoryProduction) return;
-    this.warnedMemoryProduction = true;
-    log.warn('memory rate limiter active in production without REDIS_URL');
   }
 
   private consumeMemoryMinute(client: AuthenticatedClient, now: Date, resetAt: number): number {
     const minuteKey = `${client.client_id}:${yyyyMMddHHmm(now)}`;
     const current = this.windows.get(minuteKey);
-    const state = current && current.resetAt > Math.floor(now.getTime() / 1000)
-      ? current
-      : { count: 0, resetAt };
+    const state = current && current.resetAt > Math.floor(now.getTime() / 1000) ? current : { count: 0, resetAt };
     state.count += 1;
     this.windows.set(minuteKey, state);
     return state.count;
@@ -100,16 +98,23 @@ export class RateLimitService {
 
   private async consumeRedisMinute(client: AuthenticatedClient, now: Date, resetAt: number): Promise<number> {
     try {
+      const redis = await getRedisClient();
       const key = `rate:v1:${client.client_id}:${yyyyMMddHHmm(now)}`;
-      const count = Number(await redisCommand(config.redisUrl!, ['INCR', key]));
-      if (count === 1) {
-        await redisCommand(config.redisUrl!, ['EXPIREAT', key, String(resetAt)]);
+      return Number(await withRedisDeadline(redis.eval(CONSUME_MINUTE_SCRIPT, { keys: [key], arguments: [String(resetAt)] })));
+    } catch (error) {
+      if (config.nodeEnv === 'production') {
+        throw new AppError('UPSTREAM_ERROR', 'Rate limit store unavailable', 503, undefined, error);
       }
-      return count;
-    } catch (err) {
-      log.warn('redis rate limit failed; using memory fallback', { err: err instanceof Error ? err.message : String(err) });
+      log.warn('redis rate limit unavailable; using local development fallback', { error_type: error instanceof Error ? error.name : typeof error });
       return this.consumeMemoryMinute(client, now, resetAt);
     }
+  }
+
+  private pruneMemory(now: Date): void {
+    const epoch = Math.floor(now.getTime() / 1000);
+    for (const [key, state] of this.windows) if (state.resetAt <= epoch) this.windows.delete(key);
+    const currentDate = yyyyMMdd(now);
+    for (const key of this.dailyUsage.keys()) if (!key.startsWith(`${currentDate}:`)) this.dailyUsage.delete(key);
   }
 }
 
@@ -128,67 +133,8 @@ function nextMinuteEpochSeconds(date: Date): number {
   return Math.floor(next.getTime() / 1000);
 }
 
-async function redisCommand(redisUrl: string, args: string[]): Promise<string> {
-  const url = new URL(redisUrl);
-  if (url.protocol !== 'redis:') throw new Error(`Unsupported Redis URL protocol: ${url.protocol}`);
-  const port = url.port ? Number.parseInt(url.port, 10) : 6379;
-  const host = url.hostname || '127.0.0.1';
-  const commands: string[][] = [];
-  if (url.password) commands.push(['AUTH', decodeURIComponent(url.password)]);
-  if (url.pathname && url.pathname !== '/') commands.push(['SELECT', url.pathname.slice(1)]);
-  commands.push(args);
-  const payload = commands.map(encodeRedisCommand).join('');
-
-  return new Promise((resolve, reject) => {
-    const socket = new Socket();
-    let buffer = '';
-    let replies = 0;
-    socket.setTimeout(500);
-    socket.once('error', reject);
-    socket.once('timeout', () => {
-      socket.destroy();
-      reject(new Error('Redis command timed out'));
-    });
-    socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      while (buffer.length > 0) {
-        const parsed = parseRedisReply(buffer);
-        if (!parsed) return;
-        buffer = buffer.slice(parsed.bytes);
-        replies += 1;
-        if (parsed.error) {
-          socket.end();
-          reject(new Error(parsed.error));
-          return;
-        }
-        if (replies === commands.length) {
-          socket.end();
-          resolve(parsed.value);
-          return;
-        }
-      }
-    });
-    socket.connect(port, host, () => socket.write(payload));
-  });
-}
-
-function encodeRedisCommand(args: string[]): string {
-  return `*${args.length}\r\n${args.map((arg) => `$${Buffer.byteLength(arg)}\r\n${arg}\r\n`).join('')}`;
-}
-
-function parseRedisReply(input: string): { value: string; bytes: number; error?: string } | null {
-  const end = input.indexOf('\r\n');
-  if (end === -1) return null;
-  const prefix = input[0];
-  const line = input.slice(1, end);
-  if (prefix === '+' || prefix === ':') return { value: line, bytes: end + 2 };
-  if (prefix === '-') return { value: '', bytes: end + 2, error: line };
-  if (prefix === '$') {
-    const len = Number.parseInt(line, 10);
-    if (len < 0) return { value: '', bytes: end + 2 };
-    const total = end + 2 + len + 2;
-    if (input.length < total) return null;
-    return { value: input.slice(end + 2, end + 2 + len), bytes: total };
-  }
-  return { value: line, bytes: end + 2 };
+function nextDayEpochSeconds(date: Date): number {
+  const next = new Date(date);
+  next.setUTCHours(24, 0, 0, 0);
+  return Math.floor(next.getTime() / 1000);
 }

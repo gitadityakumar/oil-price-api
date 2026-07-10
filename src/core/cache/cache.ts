@@ -9,7 +9,7 @@ const log = logger.child('cache');
 let singleton: Cache | undefined;
 
 export function createCache(): Cache {
-  if (config.redisUrl) {
+  if (config.redisUrl && config.nodeEnv !== 'test') {
     log.info('redis cache configured');
     return new RedisCache(config.redisUrl);
   }

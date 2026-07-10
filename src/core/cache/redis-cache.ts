@@ -1,4 +1,5 @@
 import type { Cache } from './cache.model';
+import { getRedisClient, withRedisDeadline } from '../redis/redis-client';
 
 /**
  * Redis adapter boundary. A real Redis client dependency is intentionally not
@@ -7,17 +8,27 @@ import type { Cache } from './cache.model';
  * for a small client integration without changing callers.
  */
 export class RedisCache implements Cache {
-  constructor(private readonly redisUrl: string) {}
+  constructor(_redisUrl?: string) {}
 
-  async get<T>(_key: string): Promise<T | null> {
-    throw new Error(`Redis cache adapter requires a Redis client integration for ${this.redisUrl}`);
+  async get<T>(key: string): Promise<T | null> {
+    const value = await withRedisDeadline((await getRedisClient()).get(key));
+    return value === null ? null : JSON.parse(value) as T;
   }
 
-  async set<T>(_key: string, _value: T, _ttlSeconds: number): Promise<void> {
-    throw new Error(`Redis cache adapter requires a Redis client integration for ${this.redisUrl}`);
+  async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
+    if (ttlSeconds <= 0) {
+      await this.delete(key);
+      return;
+    }
+    await withRedisDeadline((await getRedisClient()).set(key, JSON.stringify(value), { EX: ttlSeconds }));
   }
 
-  async delete(_key: string): Promise<void> {
-    throw new Error(`Redis cache adapter requires a Redis client integration for ${this.redisUrl}`);
+  async delete(key: string): Promise<void> {
+    await withRedisDeadline((await getRedisClient()).del(key));
+  }
+
+  async ttl(key: string): Promise<number | null> {
+    const ttl = await withRedisDeadline((await getRedisClient()).ttl(key));
+    return ttl < 0 ? null : ttl;
   }
 }

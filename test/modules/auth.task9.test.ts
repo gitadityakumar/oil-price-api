@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import type { HttpContext } from '../../src/core/http/context';
 import { AuthService } from '../../src/modules/auth/auth.service';
 import { generateApiKey } from '../../src/modules/auth/api-key-generator';
-import { MemoryAuthRepository } from '../../src/modules/auth/auth.repository';
+import { MemoryAuthRepository, PgAuthRepository } from '../../src/modules/auth/auth.repository';
 import { requireScopes } from '../../src/core/middleware/scope-required';
 import { RateLimitService } from '../../src/modules/auth/rate-limit.service';
 import { accessLogMiddleware } from '../../src/core/middleware/access-log';
 import type { ApiClientRow, AuthenticatedClient } from '../../src/modules/auth/auth.model';
+import { enforceRateLimit } from '../../src/core/middleware/rate-limit';
+import { query } from '../../src/db/query';
 
 const PEPPER = 'test-pepper';
 
@@ -141,6 +143,45 @@ test('rate limit: daily quota exceeded', async () => {
   );
 });
 
+test('rate limit: zero daily quota rejects the first request', async () => {
+  const client = {
+    api_client_id: 3,
+    client_id: 'cli_zero_quota',
+    name: 'Zero quota',
+    tier: 'free',
+    scopes: ['read:public'],
+    rate_limit_per_minute: 60,
+    quota_per_day: 0,
+  };
+  const service = new RateLimitService(new MemoryAuthRepository());
+  await assert.rejects(
+    () => service.consume(client, new Date('2026-07-10T00:00:00.000Z')),
+    { code: 'RATE_LIMITED', message: 'Daily quota exceeded' },
+  );
+});
+
+test('rate limit middleware writes headers on 429', async () => {
+  const client: AuthenticatedClient = {
+    api_client_id: 2,
+    client_id: 'cli_headers',
+    name: 'Headers',
+    tier: 'free',
+    scopes: ['read:public'],
+    rate_limit_per_minute: 1,
+    quota_per_day: null,
+  };
+  const headers = new Map<string, string>();
+  const context = ctx({}, client);
+  context.res.setHeader = (name: string, value: string | number | readonly string[]) => { headers.set(name, String(value)); return context.res; };
+  const service = new RateLimitService(new MemoryAuthRepository());
+  await enforceRateLimit(context, service);
+  await assert.rejects(() => enforceRateLimit(context, service), { code: 'RATE_LIMITED' });
+  assert.equal(headers.get('x-rate-limit-limit'), '1');
+  assert.equal(headers.get('x-rate-limit-remaining'), '0');
+  assert.ok(headers.has('x-rate-limit-reset'));
+  assert.ok(headers.has('retry-after'));
+});
+
 test('auth: timing safe compare handles unequal lengths safely', async () => {
   const { safeHashEquals } = await import('../../src/modules/auth/auth.service');
   assert.equal(safeHashEquals('abcd', 'abcdef'), false);
@@ -164,4 +205,25 @@ test('logs: api key is never logged', async () => {
     process.stderr.write = originalStderr;
   }
   assert.equal(output.includes(apiKey), false);
+});
+
+test('DB: daily quota admission is atomic', { skip: !process.env.DATABASE_URL }, async () => {
+  const clientId = `cli_quota_${Date.now()}`;
+  const inserted = await query<{ api_client_id: number }>(
+    `insert into api_client (client_id, name, key_hash, status, tier, scopes, rate_limit_per_minute, quota_per_day)
+     values ($1, 'Quota concurrency', 'test-hash', 'active', 'test', array['read:public'], 100, 1)
+     returning api_client_id`,
+    [clientId],
+  );
+  const apiClientId = Number(inserted.rows[0].api_client_id);
+  const repository = new PgAuthRepository();
+  const zero = await repository.consumeDailyQuota(apiClientId, '2026-07-09', 0);
+  assert.equal(zero.allowed, false);
+  assert.equal(await repository.getDailyUsage(apiClientId, '2026-07-09'), 0);
+  const results = await Promise.all(Array.from({ length: 10 }, () => repository.consumeDailyQuota(apiClientId, '2026-07-10', 1)));
+  assert.equal(results.filter((result) => result.allowed).length, 1);
+  await query('delete from api_usage_daily where api_client_id = $1', [apiClientId]);
+  await query('delete from api_client where api_client_id = $1', [apiClientId]);
+  const { closePool } = await import('../../src/db/pool');
+  await closePool();
 });
