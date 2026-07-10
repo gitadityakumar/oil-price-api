@@ -16,7 +16,7 @@ async function main(): Promise<void> {
     txCount = Number(r.rows[0].c);
   });
   console.log('sources in tx:', txCount);
-  if (txCount !== 10) throw new Error(`expected 10 sources, got ${txCount}`);
+  if (txCount !== 12) throw new Error(`expected 12 sources, got ${txCount}`);
 
   // rollback path: throwing inside tx must abort and propagate
   let rolled = false;
