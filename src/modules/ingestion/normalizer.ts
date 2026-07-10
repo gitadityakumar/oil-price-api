@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import type { NormalizedPriceFact, ParsedPriceRecord } from './source-adapter';
 
 export function normalizeParsedRecord(sourceKey: string, record: ParsedPriceRecord): NormalizedPriceFact {
+  if (!record.evidence) {
+    throw new TypeError(`Parsed record from ${sourceKey} is missing artifact evidence`);
+  }
   return {
     sourceKey,
     fuelCode: record.fuelCode,
@@ -15,8 +18,9 @@ export function normalizeParsedRecord(sourceKey: string, record: ParsedPriceReco
     priceKind: record.priceKind ?? 'retail',
     components: record.components,
     rawDocumentUrl: record.rawDocumentUrl,
-    rawHash: hashNormalizedRecord(sourceKey, record),
+    rawHash: record.evidence.contentHash,
     attributionText: record.attributionText ?? `Price normalized from ${sourceKey}.`,
+    evidence: record.evidence,
   };
 }
 

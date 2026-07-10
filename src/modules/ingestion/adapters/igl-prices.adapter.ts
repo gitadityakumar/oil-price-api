@@ -3,22 +3,23 @@ import { StubAdapter } from './_stub-adapter';
 import { fetchArtifact } from '../http-fetcher';
 import { normalizeParsedRecord } from '../normalizer';
 
-const LIVE_URL = 'https://www.iglonline.net/current-cng-png-prices';
+const LIVE_URL = 'https://www.iglonline.net/cng-png-prices';
 
 export class IglPricesAdapter extends StubAdapter implements SourceAdapter {
   sourceKey = 'igl_prices' as const;
   sourceType = 'cgd' as const;
   mode = 'primary' as const;
+  override capabilities = { fixture: true, live: false, allowedHosts: ['iglonline.net', 'www.iglonline.net'] } as const;
 
   async fetchArtifacts(ctx: IngestionContext): Promise<SourceArtifactInput[]> {
     if (ctx.liveFetch) {
-      const fetched = await fetchArtifact(LIVE_URL);
+      const fetched = await fetchArtifact(LIVE_URL, { allowedHosts: this.capabilities.allowedHosts, allowedContentTypes: ['text/html'] });
       return [{ artifactType: 'html', originalUrl: LIVE_URL, bytes: fetched.bytes, metadata: { http_status: fetched.status } }];
     }
     return [{ artifactType: 'html', originalUrl: 'fixture://igl_prices/current.html', bytes: await this.loadFixture('current.html') }];
   }
 
-  async parseArtifact(artifact: CapturedArtifact, _ctx: IngestionContext): Promise<ParsedPriceRecord[]> {
+  async parseArtifact(artifact: CapturedArtifact, ctx: IngestionContext): Promise<ParsedPriceRecord[]> {
     const html = artifact.bytes.toString('utf8');
     const rows = [...html.matchAll(/<tr[^>]*data-row="price"[^>]*>([\s\S]*?)<\/tr>/g)];
     return rows.map((match) => {
@@ -31,7 +32,7 @@ export class IglPricesAdapter extends StubAdapter implements SourceAdapter {
         fuelCode: fuel,
         applicableDate: cell(row, 'date'),
         effectiveAt: `${cell(row, 'date')}T08:35:00.000Z`,
-        observedAt: `${cell(row, 'date')}T08:35:00.000Z`,
+        observedAt: ctx.now.toISOString(),
         priceValue: cell(row, 'price'),
         unit: fuel === 'PNG' ? 'SCM' : 'KG',
         geography: {
@@ -44,6 +45,13 @@ export class IglPricesAdapter extends StubAdapter implements SourceAdapter {
         priceKind: 'retail',
         rawDocumentUrl: artifact.originalUrl,
         attributionText: 'Price normalized from CGD operator publication.',
+        evidence: {
+          artifactId: artifact.artifactId,
+          contentHash: artifact.contentHash,
+          capturedAt: artifact.capturedAt,
+          originalUrl: artifact.originalUrl,
+          parserVersion: this.version,
+        },
       };
     });
   }

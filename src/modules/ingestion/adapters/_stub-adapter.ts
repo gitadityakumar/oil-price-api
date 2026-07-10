@@ -7,6 +7,8 @@ export abstract class StubAdapter implements SourceAdapter {
   abstract sourceKey: string;
   abstract sourceType: SourceAdapter['sourceType'];
   abstract mode: SourceAdapter['mode'];
+  version = 'fixture-v1';
+  capabilities: SourceAdapter['capabilities'] = { fixture: false, live: false, allowedHosts: [] };
 
   async fetchArtifacts(_ctx: IngestionContext): Promise<SourceArtifactInput[]> {
     throw new AppError('NOT_IMPLEMENTED', `Adapter not implemented yet: ${this.sourceKey}`, 501);

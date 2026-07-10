@@ -3,22 +3,23 @@ import { StubAdapter } from './_stub-adapter';
 import { fetchArtifact } from '../http-fetcher';
 import { normalizeParsedRecord } from '../normalizer';
 
-const LIVE_URL = 'https://ppac.gov.in/retail-selling-price';
+const LIVE_URL = 'https://ppac.gov.in/retail-selling-price-rsp-of-petrol-diesel-and-domestic-lpg/price-build-up-of-petrol-and-diesel';
 
 export class PpacRspAdapter extends StubAdapter implements SourceAdapter {
   sourceKey = 'ppac_rsp' as const;
   sourceType = 'ppac' as const;
   mode = 'primary' as const;
+  override capabilities = { fixture: true, live: false, allowedHosts: ['ppac.gov.in'] } as const;
 
   async fetchArtifacts(ctx: IngestionContext): Promise<SourceArtifactInput[]> {
     if (ctx.liveFetch) {
-      const fetched = await fetchArtifact(LIVE_URL);
+      const fetched = await fetchArtifact(LIVE_URL, { allowedHosts: this.capabilities.allowedHosts, allowedContentTypes: ['text/html'] });
       return [{ artifactType: 'html', originalUrl: LIVE_URL, bytes: fetched.bytes, metadata: { http_status: fetched.status } }];
     }
     return [{ artifactType: 'html', originalUrl: 'fixture://ppac_rsp/current.html', bytes: await this.loadFixture('current.html') }];
   }
 
-  async parseArtifact(artifact: CapturedArtifact, _ctx: IngestionContext): Promise<ParsedPriceRecord[]> {
+  async parseArtifact(artifact: CapturedArtifact, ctx: IngestionContext): Promise<ParsedPriceRecord[]> {
     const html = artifact.bytes.toString('utf8');
     const rows = [...html.matchAll(/<tr[^>]*data-row="price"[^>]*>([\s\S]*?)<\/tr>/g)];
     return rows.map((match) => {
@@ -27,7 +28,7 @@ export class PpacRspAdapter extends StubAdapter implements SourceAdapter {
         fuelCode: cell(row, 'fuel') as ParsedPriceRecord['fuelCode'],
         applicableDate: cell(row, 'date'),
         effectiveAt: `${cell(row, 'date')}T00:30:00.000Z`,
-        observedAt: `${cell(row, 'date')}T00:47:00.000Z`,
+        observedAt: ctx.now.toISOString(),
         priceValue: cell(row, 'price'),
         unit: 'LTR',
         geography: {
@@ -47,6 +48,13 @@ export class PpacRspAdapter extends StubAdapter implements SourceAdapter {
         ],
         rawDocumentUrl: artifact.originalUrl,
         attributionText: 'Price normalized from official publication.',
+        evidence: {
+          artifactId: artifact.artifactId,
+          contentHash: artifact.contentHash,
+          capturedAt: artifact.capturedAt,
+          originalUrl: artifact.originalUrl,
+          parserVersion: this.version,
+        },
       };
     });
   }

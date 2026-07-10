@@ -10,10 +10,14 @@ export type Env = {
   artifactLocalDir: string;
   s3Bucket: string | undefined;
   s3Region: string | undefined;
+  s3Endpoint: string | undefined;
+  s3ForcePathStyle: boolean;
+  s3Prefix: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   ingestionLiveFetch: boolean;
   fetchTimeoutMs: number;
   fetchMaxBytes: number;
+  ingestionUserAgent: string;
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -25,7 +29,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
 
 function parsePositiveInt(value: string | undefined, fallback: number, field: string): number {
   if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
+  const parsed = /^\d+$/.test(value) ? Number(value) : Number.NaN;
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new AppError('CONFIG_ERROR', `Invalid ${field}: ${value}`, 500);
   }
@@ -42,7 +46,7 @@ function parseNodeEnv(value: string | undefined): Env['nodeEnv'] {
 
 function parsePort(value: string | undefined): number {
   if (!value) return 8080;
-  const port = Number.parseInt(value, 10);
+  const port = /^\d+$/.test(value) ? Number(value) : Number.NaN;
   if (!Number.isFinite(port) || port <= 0 || port > 65535) {
     throw new AppError('CONFIG_ERROR', `Invalid PORT: ${value}`, 500);
   }
@@ -78,10 +82,14 @@ function buildConfig(): Env {
     artifactLocalDir: process.env.ARTIFACT_LOCAL_DIR || './.artifacts',
     s3Bucket: process.env.S3_BUCKET || undefined,
     s3Region: process.env.S3_REGION || undefined,
+    s3Endpoint: process.env.S3_ENDPOINT || undefined,
+    s3ForcePathStyle: parseBoolean(process.env.S3_FORCE_PATH_STYLE, false),
+    s3Prefix: process.env.S3_PREFIX || 'oil-api/artifacts',
     logLevel: parseLogLevel(process.env.LOG_LEVEL),
     ingestionLiveFetch: parseBoolean(process.env.INGESTION_LIVE_FETCH, false),
     fetchTimeoutMs: parsePositiveInt(process.env.FETCH_TIMEOUT_MS, 15000, 'FETCH_TIMEOUT_MS'),
     fetchMaxBytes: parsePositiveInt(process.env.FETCH_MAX_BYTES, 5 * 1024 * 1024, 'FETCH_MAX_BYTES'),
+    ingestionUserAgent: process.env.INGESTION_USER_AGENT || 'OilAPI/0.1 local-development',
   };
 
   // Required outside tests and dev.

@@ -28,3 +28,10 @@ export function getSourceAdapter(sourceKey: string): SourceAdapter | null {
 export function listSourceAdapters(): SourceAdapter[] {
   return [...adapters];
 }
+
+export function requireRunnableAdapter(sourceKey: string, runMode: 'fixture' | 'live'): SourceAdapter | null {
+  const adapter = getSourceAdapter(sourceKey);
+  if (!adapter) return null;
+  const supported = runMode === 'fixture' ? adapter.capabilities.fixture : adapter.capabilities.live;
+  return supported ? adapter : null;
+}

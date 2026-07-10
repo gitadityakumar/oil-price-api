@@ -15,7 +15,7 @@ export type UpsertPriceFactInput = {
   applicable_date: string;
   effective_at?: string | null;
   observed_at: string;
-  price_value: number;
+  price_value: string;
   currency_code?: string;
   price_kind: 'retail' | 'breakup_final' | 'tax_exclusive' | 'wholesale_context';
   confidence_score?: number | null;
@@ -27,7 +27,7 @@ export type UpsertPriceFactInput = {
 export type UpsertPriceComponentInput = {
   price_fact_id: number;
   component_name: string;
-  component_value?: number | null;
+  component_value?: string | null;
   component_unit?: string | null;
 };
 
@@ -43,9 +43,25 @@ export type FinishCrawlRunInput = {
   http_status?: number | null;
   records_seen?: number;
   records_written?: number;
+  records_rejected?: number;
   notes?: string | null;
   error_code?: string | null;
   error_message?: string | null;
+};
+
+export type IngestionWriteSummary = {
+  inserted_or_updated: number;
+  rejected: number;
+};
+
+export type ClaimedIngestionJob = {
+  ingestion_job_id: number;
+  crawl_run_id: number;
+  source_id: number;
+  source_key: string;
+  reason: string | null;
+  run_mode: 'manual' | 'scheduled';
+  attempts: number;
 };
 
 export type IngestionRunRequest = {

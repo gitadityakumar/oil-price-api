@@ -32,11 +32,13 @@ function artifact(sourceKey: string, html: string): CapturedArtifact {
   const bytes = Buffer.from(html);
   const contentHash = createHash('sha256').update(bytes).digest('hex');
   return {
+    artifactId: 1,
     sourceKey,
     artifactType: 'html',
     originalUrl: `fixture://${sourceKey}/current.html`,
     bytes,
     contentHash,
+    capturedAt: '2026-07-09T00:00:00.000Z',
     storageUri: `fixture://${contentHash}`,
     metadata: {},
   };

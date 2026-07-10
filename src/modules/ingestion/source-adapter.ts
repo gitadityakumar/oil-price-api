@@ -8,13 +8,23 @@ export interface SourceArtifactInput {
 }
 
 export interface CapturedArtifact {
+  artifactId: number;
   sourceKey: string;
   artifactType: SourceArtifactInput['artifactType'];
   originalUrl: string;
   bytes: Buffer;
   contentHash: string;
+  capturedAt: string;
   storageUri: string;
   metadata: Record<string, unknown>;
+}
+
+export interface ArtifactEvidence {
+  artifactId: number;
+  contentHash: string;
+  capturedAt: string;
+  originalUrl: string;
+  parserVersion: string;
 }
 
 export interface GeographyInput {
@@ -55,6 +65,7 @@ export interface ParsedPriceRecord {
   rawDocumentUrl?: string;
   attributionText?: string;
   metadata?: Record<string, unknown>;
+  evidence?: ArtifactEvidence;
 }
 
 export interface NormalizedPriceFact {
@@ -72,6 +83,7 @@ export interface NormalizedPriceFact {
   rawDocumentUrl?: string;
   rawHash: string;
   attributionText: string;
+  evidence: ArtifactEvidence;
 }
 
 export interface IngestionContext {
@@ -87,6 +99,12 @@ export interface SourceAdapter {
   sourceKey: string;
   sourceType: 'ppac' | 'omc' | 'cgd' | 'regulator' | 'aggregator' | 'exchange';
   mode: 'primary' | 'reference' | 'fallback';
+  version: string;
+  capabilities: {
+    fixture: boolean;
+    live: boolean;
+    allowedHosts: readonly string[];
+  };
   fetchArtifacts(ctx: IngestionContext): Promise<SourceArtifactInput[]>;
   parseArtifact(artifact: CapturedArtifact, ctx: IngestionContext): Promise<ParsedPriceRecord[]>;
   normalize(record: ParsedPriceRecord, ctx: IngestionContext): Promise<NormalizedPriceFact[]>;
