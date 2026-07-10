@@ -9,11 +9,19 @@ import type {
   PriceFactWithProvenance,
   PriceComponentRow,
 } from './prices.model';
+import type { ResolvedTarget } from '../locations/location.model';
 
 export interface EnrichedPriceFactRow extends PriceFactWithProvenance {
   outlet_public_id?: string | null;
   outlet_name?: string | null;
   fuel_station_type?: string | null;
+  matched_target?: ResolvedTarget;
+  has_components?: boolean;
+}
+
+export interface SelectedPricePage {
+  rows: EnrichedPriceFactRow[];
+  total: number;
 }
 
 const SELECT_COLS = `
@@ -35,6 +43,7 @@ const SELECT_COLS = `
   p.attribution_text,
   p.created_at,
   p.updated_at,
+  exists(select 1 from price_component_fact component where component.price_fact_id = p.price_fact_id) as has_components,
   f.fuel_code,
   f.display_name   as fuel_display_name,
   f.retail_unit    as fuel_retail_unit,
@@ -58,7 +67,7 @@ const SELECT_COLS = `
 `;
 
 function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
-  return {
+  const row: EnrichedPriceFactRow = {
     price_fact_id: r.price_fact_id as number,
     public_id: r.public_id as string,
     source_id: r.source_id as number,
@@ -71,12 +80,13 @@ function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
     price_value: String(r.price_value),
     currency_code: r.currency_code as string,
     price_kind: r.price_kind as 'retail' | 'breakup_final' | 'tax_exclusive' | 'wholesale_context',
-    confidence_score: r.confidence_score === null ? null : String(r.confidence_score),
+    confidence_score: primitiveString(r.confidence_score),
     raw_document_url: (r.raw_document_url as string | null) ?? null,
     raw_hash: (r.raw_hash as string | null) ?? null,
     attribution_text: (r.attribution_text as string | null) ?? null,
     created_at: r.created_at as string,
     updated_at: r.updated_at as string,
+    has_components: Boolean(r.has_components),
     fuel_code: r.fuel_code as FuelCode,
     fuel_display_name: r.fuel_display_name as string,
     fuel_retail_unit: r.fuel_retail_unit as 'LTR' | 'KG' | 'SCM' | 'CYLINDER',
@@ -103,11 +113,32 @@ function mapRow(r: Record<string, unknown>): EnrichedPriceFactRow {
             canonical_label: (r.canonical_label as string | null) ?? '',
           },
   };
+  if (r.matched_resolution_method) {
+    row.matched_target = {
+      geography_id: r.matched_geography_id === null ? null : Number(r.matched_geography_id),
+      outlet_id: r.matched_outlet_id === null ? null : Number(r.matched_outlet_id),
+      resolution_method: r.matched_resolution_method as ResolvedTarget['resolution_method'],
+      priority_rank: Number(r.matched_priority_rank),
+      direct_from_source: Boolean(r.matched_direct_from_source),
+      derived: Boolean(r.matched_derived),
+      confidence_modifier: Number(r.matched_confidence_modifier ?? 1),
+    };
+  }
+  return row;
 }
 
 function toDateOnly(value: unknown): string {
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
   return String(value).slice(0, 10);
+}
+
+function primitiveString(value: unknown): string | null {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : null;
 }
 
 function toIso(value: unknown): string {
@@ -120,82 +151,111 @@ function toIsoOrNull(value: unknown): string | null {
   return toIso(value);
 }
 
-export async function findPriceFactsByTargets(input: {
+export async function findSelectedPricePage(input: {
+  mode: 'current' | 'history';
   fuelCodes: FuelCode[];
-  applicableDate: string;
-  geographyIds: number[];
-  outletIds: number[];
+  date?: string;
+  from?: string;
+  to?: string;
+  targets: ResolvedTarget[];
   limit: number;
   offset: number;
-}): Promise<EnrichedPriceFactRow[]> {
+}): Promise<SelectedPricePage> {
+  if (input.targets.length === 0) return { rows: [], total: 0 };
+  const historical = input.mode === 'history';
+  const datePredicate = historical
+    ? 'p.applicable_date between $3::date and $4::date'
+    : 'p.applicable_date = $3::date';
+  const partition = historical ? 'f.fuel_code, p.applicable_date' : 'f.fuel_code';
+  const limitParam = historical ? '$5' : '$4';
+  const offsetParam = historical ? '$6' : '$5';
+  const params = historical
+    ? [JSON.stringify(input.targets), input.fuelCodes, input.from, input.to, input.limit, input.offset]
+    : [JSON.stringify(input.targets), input.fuelCodes, input.date, input.limit, input.offset];
   const sql = `
-    select ${SELECT_COLS}
-      from price_fact_daily p
-      join fuel_dim f       on f.fuel_id = p.fuel_id
+    with targets as (
+      select * from jsonb_to_recordset($1::jsonb) as t(
+        geography_id bigint,
+        outlet_id bigint,
+        resolution_method text,
+        priority_rank integer,
+        direct_from_source boolean,
+        derived boolean,
+        confidence_modifier numeric
+      )
+    ), ranked as (
+      select p.price_fact_id,
+             t.geography_id as matched_geography_id,
+             t.outlet_id as matched_outlet_id,
+             t.resolution_method as matched_resolution_method,
+             t.priority_rank as matched_priority_rank,
+             t.direct_from_source as matched_direct_from_source,
+             t.derived as matched_derived,
+             t.confidence_modifier as matched_confidence_modifier,
+             row_number() over (
+               partition by ${partition}
+               order by
+                 t.priority_rank asc,
+                 case s.reliability_tier when 'highest' then 1 when 'high' then 2 when 'medium' then 3 else 4 end,
+                 case p.price_kind when 'retail' then 1 when 'breakup_final' then 2 when 'tax_exclusive' then 3 else 4 end,
+                 p.observed_at desc,
+                 coalesce(p.confidence_score, 0) desc,
+                 p.public_id asc
+             ) as selection_rank
+        from price_fact_daily p
+        join fuel_dim f on f.fuel_id = p.fuel_id
+        join source_catalog s on s.source_id = p.source_id
+        left join outlet_dim eligible_outlet on eligible_outlet.outlet_id = p.outlet_id
+        join targets t on (
+          (p.outlet_id is not null and t.outlet_id = p.outlet_id)
+          or
+          (p.outlet_id is null and p.geography_id is not null and t.outlet_id is null and t.geography_id = p.geography_id)
+        )
+       where f.fuel_code = any($2::text[])
+         and f.active = true
+         and s.active = true
+         and s.public_display_enabled = true
+         and s.rights_status = 'approved'
+         and p.price_kind <> 'wholesale_context'
+         and (p.outlet_id is null or eligible_outlet.active = true)
+         and ${datePredicate}
+    ), selected as (
+      select *, count(*) over()::int as selected_total
+        from ranked
+       where selection_rank = 1
+    )
+    select ${SELECT_COLS},
+           selected.matched_geography_id,
+           selected.matched_outlet_id,
+           selected.matched_resolution_method,
+           selected.matched_priority_rank,
+           selected.matched_direct_from_source,
+           selected.matched_derived,
+           selected.matched_confidence_modifier,
+           selected.selected_total
+      from selected
+      join price_fact_daily p on p.price_fact_id = selected.price_fact_id
+      join fuel_dim f on f.fuel_id = p.fuel_id
       join source_catalog s on s.source_id = p.source_id
       left join geography_dim g on g.geography_id = p.geography_id
-      left join outlet_dim o    on o.outlet_id    = p.outlet_id
-      left join geography_dim og on og.pincode = o.pincode
-     where f.fuel_code = any($1::text[])
-       and s.source_key not in ('pngrb_reference', 'ppac_tax_reference', 'igx_wholesale_context')
-       and p.price_kind <> 'wholesale_context'
-       and p.applicable_date = $2
-       and (
-         (cardinality($3::bigint[]) > 0 and p.geography_id = any($3::bigint[]))
-         or
-         (cardinality($4::bigint[]) > 0 and p.outlet_id = any($4::bigint[]))
-       )
-     order by p.observed_at desc
-     limit $5 offset $6`;
-  const res = await query<Record<string, unknown>>(sql, [
-    input.fuelCodes,
-    input.applicableDate,
-    input.geographyIds,
-    input.outletIds,
-    input.limit,
-    input.offset,
-  ]);
-  return res.rows.map(mapRow);
-}
-
-export async function findHistoricalPriceFacts(input: {
-  fuelCode: FuelCode;
-  from: string;
-  to: string;
-  geographyIds: number[];
-  outletIds: number[];
-  limit: number;
-  offset: number;
-}): Promise<EnrichedPriceFactRow[]> {
-  const sql = `
-    select ${SELECT_COLS}
-      from price_fact_daily p
-      join fuel_dim f       on f.fuel_id = p.fuel_id
-      join source_catalog s on s.source_id = p.source_id
-      left join geography_dim g on g.geography_id = p.geography_id
-      left join outlet_dim o    on o.outlet_id    = p.outlet_id
-      left join geography_dim og on og.pincode = o.pincode
-     where f.fuel_code = $1::text
-       and s.source_key not in ('pngrb_reference', 'ppac_tax_reference', 'igx_wholesale_context')
-       and p.price_kind <> 'wholesale_context'
-       and p.applicable_date between $2 and $3
-       and (
-         (cardinality($4::bigint[]) > 0 and p.geography_id = any($4::bigint[]))
-         or
-         (cardinality($5::bigint[]) > 0 and p.outlet_id = any($5::bigint[]))
-       )
-     order by p.applicable_date asc, p.observed_at desc
-     limit $6 offset $7`;
-  const res = await query<Record<string, unknown>>(sql, [
-    input.fuelCode,
-    input.from,
-    input.to,
-    input.geographyIds,
-    input.outletIds,
-    input.limit,
-    input.offset,
-  ]);
-  return res.rows.map(mapRow);
+      left join outlet_dim o on o.outlet_id = p.outlet_id
+      left join lateral (
+        select candidate.* from geography_dim candidate
+         where candidate.pincode = o.pincode
+         order by candidate.geography_id
+         limit 1
+      ) og on true
+     order by ${historical ? 'p.applicable_date asc, f.fuel_code asc' : 'selected.matched_priority_rank asc, f.fuel_code asc'}
+     limit ${limitParam} offset ${offsetParam}`;
+  const result = await query<Record<string, unknown>>(sql, params);
+  if (result.rows.length === 0 && input.offset > 0) {
+    const firstPage = await findSelectedPricePage({ ...input, limit: 1, offset: 0 });
+    return { rows: [], total: firstPage.total };
+  }
+  return {
+    rows: result.rows.map(mapRow),
+    total: Number(result.rows[0]?.selected_total ?? 0),
+  };
 }
 
 export async function findPriceFactByPublicId(publicId: string): Promise<EnrichedPriceFactRow | null> {
@@ -204,10 +264,17 @@ export async function findPriceFactByPublicId(publicId: string): Promise<Enriche
       from price_fact_daily p
       join fuel_dim f       on f.fuel_id = p.fuel_id
       join source_catalog s on s.source_id = p.source_id
+      left join price_fact_alias a on a.price_fact_id = p.price_fact_id
       left join geography_dim g on g.geography_id = p.geography_id
       left join outlet_dim o    on o.outlet_id    = p.outlet_id
-      left join geography_dim og on og.pincode = o.pincode
-     where p.public_id = $1
+      left join lateral (
+        select candidate.* from geography_dim candidate where candidate.pincode = o.pincode order by candidate.geography_id limit 1
+      ) og on true
+     where (p.public_id = $1 or a.alias_public_id = $1)
+       and f.active = true and s.active = true
+       and s.public_display_enabled = true and s.rights_status = 'approved'
+       and p.price_kind <> 'wholesale_context'
+       and (p.outlet_id is null or o.active = true)
      limit 1`;
   const res = await query<Record<string, unknown>>(sql, [publicId]);
   return res.rows.length ? mapRow(res.rows[0]) : null;
@@ -218,53 +285,34 @@ export async function findComponentsByPublicPriceId(publicId: string): Promise<P
     select c.*
       from price_component_fact c
       join price_fact_daily p on p.price_fact_id = c.price_fact_id
-     where p.public_id = $1
+      join fuel_dim f on f.fuel_id = p.fuel_id
+      join source_catalog s on s.source_id = p.source_id
+      left join outlet_dim o on o.outlet_id = p.outlet_id
+      left join price_fact_alias a on a.price_fact_id = p.price_fact_id
+     where (p.public_id = $1 or a.alias_public_id = $1)
+       and f.active = true and s.active = true
+       and s.public_display_enabled = true and s.rights_status = 'approved'
+       and p.price_kind <> 'wholesale_context'
+       and (p.outlet_id is null or o.active = true)
      order by c.component_id asc`;
   const res = await query<PriceComponentRow>(sql, [publicId]);
   return res.rows;
 }
 
-export async function countPriceFactsByTargets(input: {
-  fuelCodes: FuelCode[];
-  applicableDate: string;
-  geographyIds: number[];
-  outletIds: number[];
-}): Promise<number> {
-  const sql = `
-    select count(*)::int as c
-      from price_fact_daily p
-      join fuel_dim f on f.fuel_id = p.fuel_id
-     where f.fuel_code = any($1::text[])
-       and p.price_kind <> 'wholesale_context'
-       and p.applicable_date = $2
-       and (
-         (cardinality($3::bigint[]) > 0 and p.geography_id = any($3::bigint[]))
-         or
-         (cardinality($4::bigint[]) > 0 and p.outlet_id = any($4::bigint[]))
-       )`;
-  const res = await query<{ c: number }>(sql, [input.fuelCodes, input.applicableDate, input.geographyIds, input.outletIds]);
-  return res.rows[0]?.c ?? 0;
-}
-
-export async function countHistoricalPriceFacts(input: {
-  fuelCode: FuelCode;
-  from: string;
-  to: string;
-  geographyIds: number[];
-  outletIds: number[];
-}): Promise<number> {
-  const sql = `
-    select count(*)::int as c
-      from price_fact_daily p
-      join fuel_dim f on f.fuel_id = p.fuel_id
-     where f.fuel_code = $1::text
-       and p.price_kind <> 'wholesale_context'
-       and p.applicable_date between $2 and $3
-       and (
-         (cardinality($4::bigint[]) > 0 and p.geography_id = any($4::bigint[]))
-         or
-         (cardinality($5::bigint[]) > 0 and p.outlet_id = any($5::bigint[]))
-       )`;
-  const res = await query<{ c: number }>(sql, [input.fuelCode, input.from, input.to, input.geographyIds, input.outletIds]);
-  return res.rows[0]?.c ?? 0;
+export async function findComponentsByPublicPriceIds(publicIds: string[]): Promise<Map<string, PriceComponentRow[]>> {
+  if (publicIds.length === 0) return new Map();
+  const result = await query<PriceComponentRow & { public_id: string }>(
+    `select p.public_id, c.* from price_component_fact c
+      join price_fact_daily p on p.price_fact_id = c.price_fact_id
+     where p.public_id = any($1::text[])
+     order by p.public_id, c.component_id`,
+    [publicIds],
+  );
+  const grouped = new Map<string, PriceComponentRow[]>();
+  for (const row of result.rows) {
+    const rows = grouped.get(row.public_id) ?? [];
+    rows.push(row);
+    grouped.set(row.public_id, rows);
+  }
+  return grouped;
 }

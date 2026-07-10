@@ -10,8 +10,7 @@ import {
   findSources,
   countSources,
   findSourceByKey,
-  findCrawlRunSummary,
-  countRecentFailures,
+  findSourceHealthSummaries,
   findCrawlRuns,
   countCrawlRuns,
 } from './source.repository';
@@ -30,17 +29,6 @@ import type { SourceSchema } from './source.schema';
 import { getCache } from '../../core/cache/cache';
 import { CACHE_TTL_SECONDS, type Cache } from '../../core/cache/cache.model';
 import { sourceHealthCacheKey } from '../../core/cache/cache-key';
-
-// Expected cadence minutes per source type. Tunable, kept conservative.
-const CADENCE_MINUTES: Record<string, number> = {
-  ppac: 24 * 60,
-  omc: 24 * 60,
-  cgd: 24 * 60,
-  regulator: 7 * 24 * 60,
-  aggregator: 12 * 60,
-  exchange: 60,
-  internal: 60,
-};
 
 export class SourceService {
   constructor(private readonly cache: Cache = getCache()) {}
@@ -64,7 +52,7 @@ export class SourceService {
       last_failed_crawl_at: toIsoOrNull((row as SourceCatalogRow & { last_failed_crawl_at?: string | null }).last_failed_crawl_at),
       terms_summary: row.terms_summary,
       // PNGRB reference only; never for commercial display.
-      commercial_display: row.source_type !== 'regulator' && (row.commercial_use_allowed ?? false),
+      commercial_display: (row.public_display_enabled ?? false) && row.rights_status === 'approved',
     };
   }
 
@@ -72,31 +60,27 @@ export class SourceService {
     const key = sourceHealthCacheKey('all');
     const cached = await safeGet<SourceHealthRow[]>(this.cache, key);
     if (cached) return cached;
-    const sources = await findSources({ active: true, limit: 1000, offset: 0 });
-    const out: SourceHealthRow[] = [];
-    for (const src of sources) {
-      const summary = await findCrawlRunSummary(src.source_id);
-      const recentFailures = await countRecentFailures(src.source_id, 3);
-      const cadence = CADENCE_MINUTES[src.source_type] ?? 24 * 60;
-      const { status, staleness } = classify(src.source_type, summary, recentFailures, cadence);
-      out.push({
+    const summaries = await findSourceHealthSummaries();
+    const out: SourceHealthRow[] = summaries.map((summary) => {
+      const { status, staleness } = classify(summary);
+      return {
         source: {
-          id: `src_${src.source_key}`,
-          name: src.source_name,
-          type: src.source_type,
-          reliability_tier: src.reliability_tier,
+          id: `src_${summary.source_key}`,
+          name: summary.source_name,
+          type: summary.source_type,
+          reliability_tier: summary.reliability_tier,
         },
         health: {
           status,
-          last_crawl_status: summary?.last_crawl_status ?? null,
-          last_successful_crawl_at: summary?.last_successful_crawl_at ?? null,
-          minutes_since_success: summary?.minutes_since_success ?? null,
-          records_seen_last_run: summary?.records_seen_last_run ?? null,
-          records_written_last_run: summary?.records_written_last_run ?? null,
+          last_crawl_status: summary.last_crawl_status,
+          last_successful_crawl_at: summary.last_successful_crawl_at,
+          minutes_since_success: summary.minutes_since_success,
+          records_seen_last_run: summary.records_seen_last_run,
+          records_written_last_run: summary.records_written_last_run,
           staleness_level: staleness,
         },
-      });
-    }
+      };
+    });
     await safeSet(this.cache, key, out, CACHE_TTL_SECONDS.sourceHealth);
     return out;
   }
@@ -109,17 +93,22 @@ export class SourceService {
 }
 
 function classify(
-  _sourceType: string,
-  summary: { minutes_since_success: number | null } | null,
-  recentFailures: number,
-  cadence: number,
+  summary: {
+    last_crawl_status: string | null;
+    minutes_since_success: number | null;
+    latest_run_age_minutes: number | null;
+    recent_failure_count: number;
+    expected_cadence_minutes: number;
+  },
 ): { status: SourceHealthStatus; staleness: StalenessLevel } {
-  const mins = summary?.minutes_since_success ?? null;
-  if (mins === null) {
-    if (recentFailures >= 3) return { status: 'unhealthy', staleness: 'expired' };
-    return { status: 'degraded', staleness: 'stale' };
+  const mins = summary.minutes_since_success;
+  if (summary.recent_failure_count >= 3) return { status: 'unhealthy', staleness: 'expired' };
+  if (summary.last_crawl_status === 'started' && (summary.latest_run_age_minutes ?? 0) > 60) return { status: 'unhealthy', staleness: 'expired' };
+  if (mins === null || mins > 24 * 60) return { status: 'unhealthy', staleness: 'expired' };
+  if (summary.last_crawl_status === 'failed') {
+    return { status: 'degraded', staleness: mins <= summary.expected_cadence_minutes ? 'fresh' : 'stale' };
   }
-  if (mins <= cadence) return { status: 'healthy', staleness: 'fresh' };
+  if (mins <= summary.expected_cadence_minutes) return { status: 'healthy', staleness: 'fresh' };
   if (mins <= 24 * 60) return { status: 'degraded', staleness: 'stale' };
   return { status: 'unhealthy', staleness: 'expired' };
 }
@@ -130,6 +119,7 @@ import type { SourceCatalogRow } from './sources.model';
 function toIsoOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
   return new Date(String(value)).toISOString();
 }
 

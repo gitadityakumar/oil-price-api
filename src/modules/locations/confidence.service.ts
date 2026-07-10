@@ -3,6 +3,8 @@ export interface ConfidenceInput {
   method: 'direct_station_pin' | 'nearest_station_geo' | 'tariff_area_mapping' | 'city_fallback';
   applicableDate: string;
   observedAt: string;
+  effectiveAt?: string | null;
+  resolutionModifier?: number;
   hasComponents: boolean;
   now?: Date;
 }
@@ -24,7 +26,7 @@ const RESOLUTION_MODIFIER: Record<ConfidenceInput['method'], number> = {
 export class ConfidenceService {
   score(input: ConfidenceInput): number {
     const base = SOURCE_SCORE[input.reliabilityTier ?? ''] ?? SOURCE_SCORE.low;
-    const resolution = RESOLUTION_MODIFIER[input.method];
+    const resolution = input.resolutionModifier ?? RESOLUTION_MODIFIER[input.method];
     const freshness = freshnessModifier(input.applicableDate, input.observedAt, input.now ?? new Date());
     const component = input.hasComponents ? 1.00 : 0.97;
     return roundClamp(base * resolution * freshness * component);

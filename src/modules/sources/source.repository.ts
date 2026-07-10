@@ -114,6 +114,75 @@ export async function countRecentFailures(sourceId: number, lookbackRuns = 3): P
   return res.rows[0]?.c ?? 0;
 }
 
+export interface SourceHealthSummaryRow {
+  source_id: number;
+  source_key: string;
+  source_name: string;
+  source_type: SourceType;
+  reliability_tier: ReliabilityTier;
+  expected_cadence_minutes: number;
+  last_crawl_status: CrawlRunStatus | null;
+  last_successful_crawl_at: string | null;
+  records_seen_last_run: number | null;
+  records_written_last_run: number | null;
+  minutes_since_success: number | null;
+  latest_run_age_minutes: number | null;
+  recent_failure_count: number;
+}
+
+export async function findSourceHealthSummaries(): Promise<SourceHealthSummaryRow[]> {
+  const result = await query<Record<string, unknown>>(
+    `select s.source_id, s.source_key, s.source_name, s.source_type, s.reliability_tier,
+            coalesce(s.expected_cadence_minutes,
+              case s.source_type when 'exchange' then 60 when 'aggregator' then 720 when 'regulator' then 10080 else 1440 end
+            ) as expected_cadence_minutes,
+            latest.status as last_crawl_status,
+            success.finished_at as last_successful_crawl_at,
+            latest.records_seen as records_seen_last_run,
+            latest.records_written as records_written_last_run,
+            case when success.finished_at is null then null
+              else floor(extract(epoch from (now() - success.finished_at)) / 60)::int end as minutes_since_success,
+            case when latest.started_at is null then null
+              else floor(extract(epoch from (now() - latest.started_at)) / 60)::int end as latest_run_age_minutes,
+            coalesce(recent.failure_count, 0)::int as recent_failure_count
+       from source_catalog s
+       left join lateral (
+         select status, started_at, finished_at, records_seen, records_written
+           from crawl_run where source_id = s.source_id
+          order by started_at desc, crawl_run_id desc limit 1
+       ) latest on true
+       left join lateral (
+         select finished_at from crawl_run
+          where source_id = s.source_id and status = 'success'
+          order by finished_at desc nulls last, crawl_run_id desc limit 1
+       ) success on true
+       left join lateral (
+         select count(*) filter (where status = 'failed') as failure_count
+           from (
+             select status from crawl_run where source_id = s.source_id
+              order by started_at desc, crawl_run_id desc limit 3
+           ) recent_runs
+       ) recent on true
+      where s.active = true and s.ingestion_enabled = true
+      order by s.source_key`,
+  );
+  return result.rows.map((row) => ({
+    source_id: Number(row.source_id),
+    source_key: String(row.source_key),
+    source_name: String(row.source_name),
+    source_type: row.source_type as SourceType,
+    reliability_tier: row.reliability_tier as ReliabilityTier,
+    expected_cadence_minutes: Number(row.expected_cadence_minutes),
+    last_crawl_status: (row.last_crawl_status as CrawlRunStatus | null) ?? null,
+    last_successful_crawl_at: row.last_successful_crawl_at ? toIso(row.last_successful_crawl_at) : null,
+    records_seen_last_run: row.records_seen_last_run === null ? null : Number(row.records_seen_last_run),
+    records_written_last_run: row.records_written_last_run === null ? null : Number(row.records_written_last_run),
+    minutes_since_success: row.minutes_since_success === null ? null : Number(row.minutes_since_success),
+    latest_run_age_minutes: row.latest_run_age_minutes === null ? null : Number(row.latest_run_age_minutes),
+    recent_failure_count: Number(row.recent_failure_count ?? 0),
+  }));
+}
+
 export async function findCrawlRuns(filters: {
   source_key?: string;
   status?: CrawlRunStatus;
@@ -133,7 +202,7 @@ export async function findCrawlRuns(filters: {
   if (filters.source_key) push('s.source_key = ?', filters.source_key);
   if (filters.status) push('cr.status = ?', filters.status);
   if (filters.from) push('cr.started_at >= ?::timestamptz', filters.from);
-  if (filters.to) push('cr.started_at <= ?::timestamptz', filters.to);
+  if (filters.to) push("cr.started_at < (?::date + interval '1 day')", filters.to);
 
   const sql = `
     select cr.crawl_run_id, cr.started_at, cr.finished_at, cr.status, cr.http_status,
@@ -142,7 +211,7 @@ export async function findCrawlRuns(filters: {
       from crawl_run cr
       join source_catalog s on s.source_id = cr.source_id
      where ${conditions.join(' and ')}
-     order by cr.started_at desc
+     order by cr.started_at desc, cr.crawl_run_id desc
      limit $${idx++} offset $${idx++}`;
   params.push(filters.limit, filters.offset);
 
@@ -186,7 +255,7 @@ export async function countCrawlRuns(filters: {
   if (filters.source_key) push('s.source_key = ?', filters.source_key);
   if (filters.status) push('cr.status = ?', filters.status);
   if (filters.from) push('cr.started_at >= ?::timestamptz', filters.from);
-  if (filters.to) push('cr.started_at <= ?::timestamptz', filters.to);
+  if (filters.to) push("cr.started_at < (?::date + interval '1 day')", filters.to);
 
   const sql = `select count(*)::int as c from crawl_run cr join source_catalog s on s.source_id = cr.source_id where ${conditions.join(' and ')}`;
   const res = await query<{ c: number }>(sql, params);

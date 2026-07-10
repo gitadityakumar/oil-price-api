@@ -10,6 +10,7 @@ import { buildPagination } from '../../core/http/pagination';
 import { resolvePagination } from '../../core/validation/query';
 import { SourceService } from './source.service';
 import type { SourceType, ReliabilityTier, CrawlRunStatus } from './sources.model';
+import { validateDateRange, validateIsoDate } from '../../core/validation/query';
 
 const ALLOWED_TYPES = new Set(['ppac', 'omc', 'cgd', 'regulator', 'aggregator', 'exchange']);
 const ALLOWED_TIERS = new Set(['highest', 'high', 'medium', 'low']);
@@ -100,14 +101,9 @@ function parseCrawlRunFilters(ctx: HttpContext) {
   if (status && !ALLOWED_RUN_STATUS.has(status)) {
     throw new AppError('VALIDATION_ERROR', `Invalid status: ${status}`, 400, [{ field: 'status', reason: 'Not allowed.' }]);
   }
-  const from = q.get('from') ?? undefined;
-  const to = q.get('to') ?? undefined;
-  if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) {
-    throw new AppError('VALIDATION_ERROR', 'from must be YYYY-MM-DD', 400, [{ field: 'from', reason: 'ISO date.' }]);
-  }
-  if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-    throw new AppError('VALIDATION_ERROR', 'to must be YYYY-MM-DD', 400, [{ field: 'to', reason: 'ISO date.' }]);
-  }
+  const from = validateIsoDate(q.get('from') ?? undefined, 'from');
+  const to = validateIsoDate(q.get('to') ?? undefined, 'to');
+  if (from && to) validateDateRange(from, to, 3660);
   const { limit, offset } = resolvePagination(q, 1000);
   return {
     source_key: q.get('source_key') ?? undefined,

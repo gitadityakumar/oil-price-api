@@ -29,13 +29,13 @@ export class FreshnessService {
     const todayIst = IST_DATE_FORMAT.format(now);
     const observedDateIst = IST_DATE_FORMAT.format(observed);
     const observedTimeIst = IST_FORMAT.format(observed);
-    const ageHours = (now.getTime() - observed.getTime()) / 3_600_000;
+    const observedAgeHours = (now.getTime() - observed.getTime()) / 3_600_000;
 
     if (applicable !== todayIst) {
       return `Historical warehouse snapshot from ${applicable}`;
     }
-    if (ageHours > 24) {
-      return `Stale: last observed ${Math.floor(ageHours)} hours ago`;
+    if (observedAgeHours > 24) {
+      return `Stale: last observed ${Math.floor(observedAgeHours)} hours ago`;
     }
     if (input.sourceType === 'cgd') {
       return `Observed from CGD operator on ${observedDateIst} at ${observedTimeIst} IST`;

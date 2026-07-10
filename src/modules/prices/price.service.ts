@@ -10,12 +10,10 @@
  */
 
 import {
-  findPriceFactsByTargets,
-  findHistoricalPriceFacts,
+  findSelectedPricePage,
   findPriceFactByPublicId,
   findComponentsByPublicPriceId,
-  countPriceFactsByTargets,
-  countHistoricalPriceFacts,
+  findComponentsByPublicPriceIds,
   type EnrichedPriceFactRow,
 } from './price.repository';
 import { LocationService } from '../locations/location.service';
@@ -44,6 +42,7 @@ import { CACHE_TTL_SECONDS, type Cache } from '../../core/cache/cache.model';
 import { priceSearchCacheKey } from '../../core/cache/cache-key';
 import { FreshnessService } from '../locations/freshness.service';
 import { ConfidenceService } from '../locations/confidence.service';
+import { getDataGeneration } from '../../core/cache/cache-generation';
 
 const locationService = new LocationService();
 const freshnessService = new FreshnessService();
@@ -56,44 +55,32 @@ export class PriceService {
   constructor(private readonly cache: Cache = getCache()) {}
 
   async getCurrentPrices(input: PriceLookupInput, _ctx: ClientContext): Promise<PriceLookupResult> {
-    const cacheKey = priceSearchCacheKey({ selector: input.location, fuels: input.fuels, date: input.date, includes: input.includes });
-    const cached = await safeGet<CachedLookup>(this.cache, cacheKey);
-    if (cached) return { ...cached, cache: { status: 'HIT', ttl_seconds: CACHE_TTL_SECONDS.searchResult } };
+    const generation = await getDataGeneration('prices');
+    const cacheKey = priceSearchCacheKey({ operation: 'current', selector: input.location, fuels: input.fuels, date: input.date, includes: input.includes, limit: input.limit, offset: input.offset, generation });
+    const cacheRead = await safeGet<CachedLookup>(this.cache, cacheKey);
+    if (cacheRead.value) return { ...cacheRead.value, cache: { status: 'HIT', ttl_seconds: await safeTtl(this.cache, cacheKey) } };
 
     const resolution = await locationService.resolve(input.location);
     const warnings: Warning[] = [...resolution.warnings];
     const targets = resolution.candidates;
     if (targets.length === 0) {
       const empty = { prices: [], total: 0, warnings };
-      await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
-      return { ...empty, cache: { status: 'MISS', ttl_seconds: null } };
+      const stored = await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
+      return { ...empty, cache: { status: cacheRead.failed || !stored ? 'BYPASS' : 'MISS', ttl_seconds: null } };
     }
 
-    const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
-    const outletIds = uniqueNums(targets.map((t) => t.outlet_id));
-
-    const rows = await findPriceFactsByTargets({
+    const page = await findSelectedPricePage({
+      mode: 'current',
       fuelCodes: input.fuels,
-      applicableDate: input.date,
-      geographyIds,
-      outletIds,
-      limit: Math.max(input.limit * input.fuels.length, input.limit) + 50,
-      offset: 0,
+      date: input.date,
+      targets,
+      limit: input.limit,
+      offset: input.offset,
     });
-
-    const total = await countPriceFactsByTargets({
-      fuelCodes: input.fuels,
-      applicableDate: input.date,
-      geographyIds,
-      outletIds,
-    });
-
-    const ranked = rankAndDedupe(rows, targets, input.location);
-    const sliced = ranked.slice(input.offset, input.offset + input.limit);
-
-    let prices = sliced.map((row) => toPriceSchema(row, input.location, targets));
+    const rows = page.rows;
+    let prices = rows.map((row) => toPriceSchema(row, input.location, targets));
     if (input.includes.includes('components')) {
-      prices = await attachComponents(prices, sliced);
+      prices = await attachComponents(prices, rows);
     }
     if (!input.includes.includes('source')) {
       prices = prices.map((p) => ({ ...p, source: stripSource(p.source) }));
@@ -105,55 +92,43 @@ export class PriceService {
     if (prices.length === 0) {
       warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date.' });
     }
-    const result = { prices, total, warnings };
-    await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
-    return { ...result, cache: { status: 'MISS', ttl_seconds: null } };
+    const result = { prices, total: page.total, warnings };
+    const stored = await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
+    return { ...result, cache: { status: cacheRead.failed || !stored ? 'BYPASS' : 'MISS', ttl_seconds: null } };
   }
 
   async getHistoricalPrices(input: PriceHistoryInput, _ctx: ClientContext): Promise<PriceHistoryResult> {
-    const cacheKey = priceSearchCacheKey({ selector: input.location, fuels: [input.fuel], date: `${input.from}:${input.to}`, includes: [] });
-    const cached = await safeGet<CachedHistory>(this.cache, cacheKey);
-    if (cached) return { ...cached, cache: { status: 'HIT', ttl_seconds: CACHE_TTL_SECONDS.searchResult } };
+    const generation = await getDataGeneration('prices');
+    const cacheKey = priceSearchCacheKey({ operation: 'history', selector: input.location, fuels: [input.fuel], date: `${input.from}:${input.to}`, includes: [], limit: input.limit, offset: input.offset, generation });
+    const cacheRead = await safeGet<CachedHistory>(this.cache, cacheKey);
+    if (cacheRead.value) return { ...cacheRead.value, cache: { status: 'HIT', ttl_seconds: await safeTtl(this.cache, cacheKey) } };
 
     const resolution = await locationService.resolve(input.location);
     const warnings: Warning[] = [...resolution.warnings];
     const targets = resolution.candidates;
     if (targets.length === 0) {
       const empty = { prices: [], total: 0, warnings };
-      await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
-      return { ...empty, cache: { status: 'MISS', ttl_seconds: null } };
+      const stored = await safeSet(this.cache, cacheKey, empty, CACHE_TTL_SECONDS.negativeNoData);
+      return { ...empty, cache: { status: cacheRead.failed || !stored ? 'BYPASS' : 'MISS', ttl_seconds: null } };
     }
 
-    const geographyIds = uniqueNums(targets.map((t) => t.geography_id));
-    const outletIds = uniqueNums(targets.map((t) => t.outlet_id));
-
-    const rows = await findHistoricalPriceFacts({
-      fuelCode: input.fuel,
+    const page = await findSelectedPricePage({
+      mode: 'history',
+      fuelCodes: [input.fuel],
       from: input.from,
       to: input.to,
-      geographyIds,
-      outletIds,
+      targets,
       limit: input.limit,
       offset: input.offset,
     });
-
-    const total = await countHistoricalPriceFacts({
-      fuelCode: input.fuel,
-      from: input.from,
-      to: input.to,
-      geographyIds,
-      outletIds,
-    });
-
-    const ranked = rankAndDedupe(rows, targets, input.location);
-    const prices = ranked.map((row) => toPriceSchema(row, input.location, targets));
+    const prices = page.rows.map((row) => toPriceSchema(row, input.location, targets));
 
     if (prices.length === 0) {
       warnings.push({ code: 'NO_PRICE_AVAILABLE', message: 'No matching price was found for the requested selector and date range.' });
     }
-    const result = { prices, total, warnings };
-    await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
-    return { ...result, cache: { status: 'MISS', ttl_seconds: null } };
+    const result = { prices, total: page.total, warnings };
+    const stored = await safeSet(this.cache, cacheKey, result, prices.length > 0 ? CACHE_TTL_SECONDS.searchResult : CACHE_TTL_SECONDS.negativeNoData);
+    return { ...result, cache: { status: cacheRead.failed || !stored ? 'BYPASS' : 'MISS', ttl_seconds: null } };
   }
 
   async getPriceComponents(publicPriceId: string): Promise<PriceComponentsResult> {
@@ -180,26 +155,27 @@ export class PriceService {
 
 export function rankAndDedupe(rows: EnrichedPriceFactRow[], _targets: ResolvedTarget[] = [], _location: unknown = null): EnrichedPriceFactRow[] {
   const scored = rows.map((row) => {
-    const method = row.pin_resolution?.method ?? 'city_fallback';
-    const kind = row.price_kind;
-    const score =
-      resolutionRank(method) * 1_000_000 +
-      reliabilityRank(row.reliability_tier) * 10_000 +
-      priceKindRank(kind) * 100 +
-      (Number(row.confidence_score ?? 0) === 0 ? 1 : 0);
+    const method = row.matched_target?.resolution_method ?? row.pin_resolution?.method ?? 'city_fallback';
     const observedTs = new Date(row.observed_at).getTime();
-    return { row, score, observedTs };
+    return { row, method, observedTs };
   });
   scored.sort((a, b) => {
-    if (a.score !== b.score) return a.score - b.score;
-    // newer observed_at first
-    return b.observedTs - a.observedTs;
+    const resolution = resolutionRank(a.method) - resolutionRank(b.method);
+    if (resolution !== 0) return resolution;
+    const reliability = reliabilityRank(a.row.reliability_tier) - reliabilityRank(b.row.reliability_tier);
+    if (reliability !== 0) return reliability;
+    const kind = priceKindRank(a.row.price_kind) - priceKindRank(b.row.price_kind);
+    if (kind !== 0) return kind;
+    if (a.observedTs !== b.observedTs) return b.observedTs - a.observedTs;
+    const confidence = Number(b.row.confidence_score ?? 0) - Number(a.row.confidence_score ?? 0);
+    if (confidence !== 0) return confidence;
+    return a.row.public_id.localeCompare(b.row.public_id);
   });
   // Best row per (fuel_code, location key) to avoid duplicates.
   const seen = new Set<string>();
   const out: EnrichedPriceFactRow[] = [];
   for (const s of scored) {
-    const key = `${s.row.fuel_code ?? 'unknown'}|${s.row.geography_id ?? ''}|${s.row.outlet_id ?? ''}`;
+    const key = `${s.row.fuel_code ?? 'unknown'}|${s.row.applicable_date}|${s.row.geography_id ?? ''}|${s.row.outlet_id ?? ''}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(s.row);
@@ -208,9 +184,9 @@ export function rankAndDedupe(rows: EnrichedPriceFactRow[], _targets: ResolvedTa
 }
 
 function toPriceSchema(row: EnrichedPriceFactRow, location: PriceLookupInput['location'], targets: ResolvedTarget[]): PriceSchema {
-  const target = matchTarget(row, targets);
+  const target = row.matched_target ?? matchTarget(row, targets);
   const method = target?.resolution_method ?? row.pin_resolution?.method ?? 'city_fallback';
-  const hasComponentsHint = Boolean(row.components && row.components.length > 0);
+  const hasComponentsHint = row.has_components ?? Boolean(row.components && row.components.length > 0);
   const enriched: PriceFactWithProvenance = {
     ...row,
     confidence_score: String(confidenceService.score({
@@ -218,6 +194,8 @@ function toPriceSchema(row: EnrichedPriceFactRow, location: PriceLookupInput['lo
       method,
       applicableDate: row.applicable_date,
       observedAt: row.observed_at,
+      effectiveAt: row.effective_at,
+      resolutionModifier: target?.confidence_modifier,
       hasComponents: hasComponentsHint,
     })),
     freshness_badge: freshnessService.buildBadge({
@@ -250,10 +228,10 @@ function matchTarget(row: EnrichedPriceFactRow, targets: ResolvedTarget[]): Reso
     if (t) return t;
   }
   if (row.geography_id !== null) {
-    const t = targets.find((x) => x.geography_id === row.geography_id);
+    const t = targets.find((x) => x.outlet_id === null && x.geography_id === row.geography_id);
     if (t) return t;
   }
-  return targets[0] ?? null;
+  return null;
 }
 
 function selectorValue(location: PriceLookupInput['location']): string {
@@ -266,18 +244,16 @@ function selectorValue(location: PriceLookupInput['location']): string {
 }
 
 async function attachComponents(prices: PriceSchema[], rows: EnrichedPriceFactRow[]): Promise<PriceSchema[]> {
-  return Promise.all(
-    prices.map(async (p, i) => {
-      const row = rows[i];
-      if (!row) return p;
-      const comps = await findComponentsByPublicPriceId(row.public_id);
-      const mapped = mapPriceComponents(
-        { public_id: row.public_id, observed_at: row.observed_at, raw_hash: row.raw_hash, source_key: row.source_key, source_name: row.source_name ?? null, raw_document_url: row.raw_document_url },
-        comps,
-      );
-      return { ...p, components: mapped.components } as PriceSchema & { components: typeof mapped.components };
-    }),
-  ) as Promise<PriceSchema[]>;
+  const grouped = await findComponentsByPublicPriceIds(rows.map((row) => row.public_id));
+  return prices.map((price, index) => {
+    const row = rows[index];
+    if (!row) return price;
+    const mapped = mapPriceComponents(
+      { public_id: row.public_id, observed_at: row.observed_at, raw_hash: row.raw_hash, source_key: row.source_key, source_name: row.source_name ?? null, raw_document_url: row.raw_document_url },
+      grouped.get(row.public_id) ?? [],
+    );
+    return { ...price, components: mapped.components } as PriceSchema & { components: typeof mapped.components };
+  });
 }
 
 function stripSource(source: PriceSchema['source']): PriceSchema['source'] {
@@ -285,16 +261,14 @@ function stripSource(source: PriceSchema['source']): PriceSchema['source'] {
   return { ...source, attribution: null, document_url: null };
 }
 
-function uniqueNums(arr: (number | null)[]): number[] {
-  const set = new Set<number>();
-  for (const v of arr) if (v !== null && v !== undefined) set.add(v);
-  return [...set];
+async function safeGet<T>(cache: Cache, key: string): Promise<{ value: T | null; failed: boolean }> {
+  try { return { value: await cache.get<T>(key), failed: false }; } catch { return { value: null, failed: true }; }
 }
 
-async function safeGet<T>(cache: Cache, key: string): Promise<T | null> {
-  try { return await cache.get<T>(key); } catch { return null; }
+async function safeSet<T>(cache: Cache, key: string, value: T, ttl: number): Promise<boolean> {
+  try { await cache.set(key, value, ttl); return true; } catch { return false; }
 }
 
-async function safeSet<T>(cache: Cache, key: string, value: T, ttl: number): Promise<void> {
-  try { await cache.set(key, value, ttl); } catch { /* cache is best-effort */ }
+async function safeTtl(cache: Cache, key: string): Promise<number | null> {
+  try { return await cache.ttl(key); } catch { return null; }
 }

@@ -14,6 +14,9 @@ export interface SourceSchema {
   reliability_tier: ReliabilityTier;
   commercial_use_allowed: boolean | null;
   active: boolean;
+  ingestion_enabled: boolean;
+  public_display_enabled: boolean;
+  rights_status: NonNullable<SourceCatalogRow['rights_status']>;
   last_successful_crawl_at: string | null;
   last_observed_price_at: string | null;
 }
@@ -29,6 +32,9 @@ export function mapSource(row: SourceCatalogRow): SourceSchema {
     reliability_tier: row.reliability_tier,
     commercial_use_allowed: row.commercial_use_allowed,
     active: row.active,
+    ingestion_enabled: row.ingestion_enabled ?? false,
+    public_display_enabled: row.public_display_enabled ?? false,
+    rights_status: row.rights_status ?? 'pending',
     last_successful_crawl_at: toIsoOrNull(row.last_successful_crawl_at),
     last_observed_price_at: toIsoOrNull(row.last_observed_price_at),
   };
@@ -37,5 +43,6 @@ export function mapSource(row: SourceCatalogRow): SourceSchema {
 function toIsoOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
   return new Date(String(value)).toISOString();
 }

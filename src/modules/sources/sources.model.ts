@@ -16,6 +16,10 @@ export type SourceCatalogRow = {
   commercial_use_allowed: boolean | null;
   reliability_tier: ReliabilityTier;
   active: boolean;
+  ingestion_enabled?: boolean;
+  public_display_enabled?: boolean;
+  rights_status?: 'pending' | 'approved' | 'restricted' | 'denied';
+  expected_cadence_minutes?: number | null;
   created_at: string;
   updated_at: string;
   last_successful_crawl_at: string | null;

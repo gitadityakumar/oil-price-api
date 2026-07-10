@@ -44,6 +44,7 @@ function flattenPinTargets(targets: ResolvedLocationTarget[]): ResolvedTarget[] 
         priority_rank: target.priorityRank,
         direct_from_source: target.directFromSource,
         derived: target.derived,
+        confidence_modifier: target.confidenceModifier,
       });
     }
     for (const geographyId of target.geographyIds) {
@@ -55,6 +56,7 @@ function flattenPinTargets(targets: ResolvedLocationTarget[]): ResolvedTarget[] 
         priority_rank: target.priorityRank,
         direct_from_source: target.directFromSource,
         derived: target.derived,
+        confidence_modifier: target.confidenceModifier,
       });
     }
   }

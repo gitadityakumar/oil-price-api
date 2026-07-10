@@ -13,6 +13,7 @@ import { PriceService, rankAndDedupe } from '../../src/modules/prices/price.serv
 import type { EnrichedPriceFactRow } from '../../src/modules/prices/price.repository';
 import { parseCurrentPricesQuery, parseHistoryQuery, validatePriceId, todayInKolkata } from '../../src/modules/prices/price.validation';
 import { AppError } from '../../src/core/errors/app-error';
+import { query } from '../../src/db/query';
 
 function qp(s: string): URLSearchParams { return new URLSearchParams(s); }
 
@@ -201,8 +202,12 @@ async function ensureSeeded(): Promise<void> {
       '001_initial_schema.sql',
       '002_seed_core_dimensions.sql',
       '003_outlet_public_id.sql',
-      '004_fixture_seed.sql',
       '005_seed_reference_sources.sql',
+      '006_api_client_scopes.sql',
+      '007_integrity_governance_and_jobs.sql',
+      '008_seed_source_governance_backfill.sql',
+      '009_cache_eligibility_generation.sql',
+      '900_fixture_seed.sql',
     ];
     for (const file of files) {
       await client.query(await readFile(join(process.cwd(), 'migrations', file), 'utf8'));
@@ -266,11 +271,18 @@ test('DB: components endpoint 404 for missing price', { skip: !DB_AVAILABLE }, a
 
 test('DB: history endpoint returns rows', { skip: !DB_AVAILABLE }, async () => {
   await ensureSeeded();
+  await query(
+    `insert into price_fact_daily
+      (public_id, source_id, geography_id, fuel_id, applicable_date, effective_at, observed_at, price_value, currency_code, price_kind, confidence_score, raw_hash, attribution_text)
+     select 'price_history_previous', s.source_id, 1001, f.fuel_id, '2026-07-08', '2026-07-08T00:30:00Z', '2026-07-08T00:47:00Z', 95.10, 'INR', 'retail', 0.85, 'sha256:history', 'Historical fixture'
+       from source_catalog s, fuel_dim f where s.source_key = 'ppac_rsp' and f.fuel_code = 'PETROL'
+     on conflict do nothing`,
+  );
   const service = new PriceService();
   const out = await service.getHistoricalPrices(
     { location: { type: 'pin', pin: '110001' }, fuel: 'PETROL', from: '2026-07-08', to: '2026-07-10', limit: 50, offset: 0 },
     { requestId: 'test' },
   );
-  assert.ok(out.prices.length > 0);
-  assert.equal(out.prices[0].fuel.code, 'PETROL');
+  assert.deepEqual(out.prices.map((price) => price.provenance.applicable_date), ['2026-07-08', '2026-07-09']);
+  assert.equal(out.total, 2);
 });

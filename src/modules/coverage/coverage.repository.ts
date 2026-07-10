@@ -25,12 +25,12 @@ export async function findCoverage(filters: {
   };
 
   if (filters.fuel) push('f.fuel_code = ?', filters.fuel);
-  if (filters.state) push('lower(g.state_name) = lower(?)', filters.state);
+  if (filters.state) push('lower(coalesce(g.state_name, o.state_name)) = lower(?)', filters.state);
   if (filters.source_type) push('s.source_type = ?', filters.source_type);
 
   const sql = `
     select
-      coalesce(g.state_name, 'Unknown') as state_name,
+      coalesce(g.state_name, o.state_name, 'Unknown') as state_name,
       f.fuel_code                       as fuel,
       s.source_type                     as source_type,
       count(distinct p.geography_id)    as geography_count,
@@ -39,12 +39,19 @@ export async function findCoverage(filters: {
       max(p.observed_at)::text          as latest_observed_at
       from price_fact_daily p
       join fuel_dim f       on f.fuel_id = p.fuel_id
-      join source_catalog s on s.source_id = p.source_id
-      left join geography_dim g on g.geography_id = p.geography_id
+       join source_catalog s on s.source_id = p.source_id
+       left join geography_dim g on g.geography_id = p.geography_id
+       left join outlet_dim o on o.outlet_id = p.outlet_id
      where ${conditions.join(' and ')}
        and (p.geography_id is not null or p.outlet_id is not null)
-     group by g.state_name, f.fuel_code, s.source_type
-     order by g.state_name asc, f.fuel_code asc, s.source_type asc`;
+       and f.active = true
+       and s.active = true
+       and s.public_display_enabled = true
+       and s.rights_status = 'approved'
+       and p.price_kind <> 'wholesale_context'
+       and (p.outlet_id is null or o.active = true)
+      group by coalesce(g.state_name, o.state_name, 'Unknown'), f.fuel_code, s.source_type
+      order by state_name asc, f.fuel_code asc, s.source_type asc`;
 
   const res = await query<Record<string, unknown>>(sql, params);
   return res.rows.map((r) => ({
@@ -53,7 +60,13 @@ export async function findCoverage(filters: {
     source_type: r.source_type as string,
     geography_count: Number(r.geography_count ?? 0),
     outlet_count: Number(r.outlet_count ?? 0),
-    latest_applicable_date: r.latest_applicable_date === null ? null : String(r.latest_applicable_date).slice(0, 10),
-    latest_observed_at: r.latest_observed_at === null ? null : new Date(String(r.latest_observed_at)).toISOString(),
+    latest_applicable_date: toStringOrNull(r.latest_applicable_date)?.slice(0, 10) ?? null,
+    latest_observed_at: r.latest_observed_at === null ? null : new Date(toStringOrNull(r.latest_observed_at) ?? '').toISOString(),
   }));
+}
+
+function toStringOrNull(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) return String(value);
+  return null;
 }

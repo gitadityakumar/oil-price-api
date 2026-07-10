@@ -1,6 +1,7 @@
 import { getCache } from '../../core/cache/cache';
 import { CACHE_TTL_SECONDS } from '../../core/cache/cache.model';
 import { pinResolutionCacheKey } from '../../core/cache/cache-key';
+import { getDataGeneration } from '../../core/cache/cache-generation';
 import type { ResolvedLocationTarget } from './location.model';
 import {
   findDirectStationPinTargets,
@@ -11,7 +12,8 @@ import {
 export class PincodeResolutionService {
   async resolvePin(pin: string): Promise<ResolvedLocationTarget[]> {
     const cache = getCache();
-    const key = pinResolutionCacheKey(pin);
+    const generation = await getDataGeneration('prices');
+    const key = `${pinResolutionCacheKey(pin)}:g${generation}`;
     const cached = await safeGet<ResolvedLocationTarget[]>(cache, key);
     if (cached) return cached;
 

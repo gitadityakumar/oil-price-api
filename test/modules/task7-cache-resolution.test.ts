@@ -8,18 +8,30 @@ import { ConfidenceService } from '../../src/modules/locations/confidence.servic
 import { FreshnessService } from '../../src/modules/locations/freshness.service';
 import { PincodeResolutionService } from '../../src/modules/locations/pincode-resolution.service';
 import { PriceService } from '../../src/modules/prices/price.service';
+import { query } from '../../src/db/query';
+import { StationService } from '../../src/modules/stations/station.service';
 
 const DB_AVAILABLE = Boolean(process.env.DATABASE_URL);
 
 async function ensureSeeded(): Promise<void> {
   const { getPool, closePool } = await import('../../src/db/pool');
   const pool = getPool();
-  const schemaSql = await readFile(join(process.cwd(), 'migrations/003_outlet_public_id.sql'), 'utf8');
-  const fixtureSql = await readFile(join(process.cwd(), 'migrations/004_fixture_seed.sql'), 'utf8');
+  const files = [
+    '001_initial_schema.sql',
+    '002_seed_core_dimensions.sql',
+    '003_outlet_public_id.sql',
+    '005_seed_reference_sources.sql',
+    '006_api_client_scopes.sql',
+    '007_integrity_governance_and_jobs.sql',
+    '008_seed_source_governance_backfill.sql',
+    '009_cache_eligibility_generation.sql',
+    '900_fixture_seed.sql',
+  ];
   const client = await pool.connect();
   try {
-    await client.query(schemaSql);
-    await client.query(fixtureSql);
+    for (const file of files) {
+      await client.query(await readFile(join(process.cwd(), 'migrations', file), 'utf8'));
+    }
   } finally {
     client.release();
   }
@@ -32,6 +44,25 @@ test('cache keys are stable and canonicalize array ordering', () => {
   assert.equal(a, b);
   assert.equal(pinResolutionCacheKey('110001'), 'location:pin:v1:110001');
   assert.equal(sourceHealthCacheKey(), 'source:health:v1:all');
+});
+
+test('cache keys separate operation and pagination', () => {
+  const base = { selector: { pin: '110001' }, fuels: ['PETROL'], date: '2026-07-09', includes: [] };
+  const first = priceSearchCacheKey({ ...base, operation: 'current', limit: 10, offset: 0, generation: 1 });
+  const second = priceSearchCacheKey({ ...base, operation: 'current', limit: 10, offset: 10, generation: 1 });
+  const history = priceSearchCacheKey({ ...base, operation: 'history', limit: 10, offset: 0, generation: 1 });
+  assert.notEqual(first, second);
+  assert.notEqual(first, history);
+});
+
+test('memory cache evicts least recently used entries at capacity', async () => {
+  const cache = new MemoryCache(2);
+  await cache.set('a', 1, 60);
+  await cache.set('b', 2, 60);
+  await cache.get('a');
+  await cache.set('c', 3, 60);
+  assert.equal(await cache.get('b'), null);
+  assert.equal(cache.size(), 2);
 });
 
 test('memory cache expires values by ttl', async () => {
@@ -121,4 +152,30 @@ test('DB: PriceService uses cached response on second identical lookup', { skip:
   assert.equal(first.cache.status, 'MISS');
   assert.equal(second.cache.status, 'HIT');
   assert.deepEqual(second.prices, first.prices);
+});
+
+test('DB: source rights changes invalidate prices and station visibility', { skip: !DB_AVAILABLE }, async () => {
+  await ensureSeeded();
+  const cache = new MemoryCache();
+  const prices = new PriceService(cache);
+  const input = {
+    location: { type: 'pin' as const, pin: '110001' },
+    fuels: ['PETROL' as const],
+    date: '2026-07-09',
+    includes: ['source' as const, 'outlet' as const],
+    limit: 50,
+    offset: 0,
+  };
+  const before = await prices.getCurrentPrices(input, { requestId: 'rights-before' });
+  assert.ok(before.prices.some((price) => price.source.id === 'src_iocl_retail'));
+  try {
+    await query("update source_catalog set public_display_enabled = false where source_key = 'iocl_retail'");
+    const after = await prices.getCurrentPrices(input, { requestId: 'rights-after' });
+    assert.ok(after.prices.every((price) => price.source.id !== 'src_iocl_retail'));
+    await assert.rejects(() => new StationService().getStation('outlet_example'), { code: 'NOT_FOUND' });
+  } finally {
+    await query("update source_catalog set rights_status = 'approved', public_display_enabled = true where source_key = 'iocl_retail'");
+    const { closePool } = await import('../../src/db/pool');
+    await closePool();
+  }
 });

@@ -13,6 +13,7 @@ export interface ResolvedTarget {
   priority_rank: number;
   direct_from_source: boolean;
   derived: boolean;
+  confidence_modifier: number;
 }
 
 export interface LocationResolution {

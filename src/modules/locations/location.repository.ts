@@ -53,6 +53,7 @@ async function resolveByPin(pin: string): Promise<ResolvedTarget[]> {
       priority_rank: r.priority_rank,
       direct_from_source: r.resolution_method === 'direct_station_pin',
       derived: r.resolution_method !== 'direct_station_pin',
+      confidence_modifier: Number(r.confidence_modifier),
     });
   }
 
@@ -71,6 +72,7 @@ async function resolveByPin(pin: string): Promise<ResolvedTarget[]> {
       priority_rank: 4,
       direct_from_source: false,
       derived: true,
+      confidence_modifier: 0.78,
     });
   }
 
@@ -91,6 +93,7 @@ async function resolveByCityState(city: string, state: string): Promise<Resolved
     priority_rank: 4,
     direct_from_source: false,
     derived: true,
+    confidence_modifier: 0.78,
   }));
 }
 
@@ -106,6 +109,7 @@ async function resolveByState(state: string): Promise<ResolvedTarget[]> {
     priority_rank: 4,
     direct_from_source: false,
     derived: true,
+    confidence_modifier: 0.78,
   }));
 }
 
@@ -122,6 +126,7 @@ async function resolveByOutletId(publicId: string): Promise<ResolvedTarget[]> {
     priority_rank: 1,
     direct_from_source: true,
     derived: false,
+    confidence_modifier: 1,
   }));
 }
 

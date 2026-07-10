@@ -65,7 +65,12 @@ const SELECT_COLS = `
     (select array_agg(distinct f.fuel_code)
        from price_fact_daily p
        join fuel_dim f on f.fuel_id = p.fuel_id
-      where p.outlet_id = o.outlet_id),
+       join source_catalog sf on sf.source_id = p.source_id
+      where p.outlet_id = o.outlet_id
+        and sf.active = true
+        and sf.public_display_enabled = true
+        and sf.rights_status = 'approved'
+        and p.price_kind <> 'wholesale_context'),
     '{}'::text[]
   ) as fuels
 `;
@@ -84,7 +89,10 @@ export async function findStations(filters: {
   limit: number;
   offset: number;
 }): Promise<StationListItemRow[]> {
-  const conditions: string[] = ['o.active = true', '(s.active is null or s.active = true)'];
+  const conditions: string[] = [
+    'o.active = true',
+    "s.active = true and s.public_display_enabled = true and s.rights_status = 'approved'",
+  ];
   const params: unknown[] = [];
   let idx = 1;
   const push = (sql: string, value?: unknown): void => {
@@ -98,7 +106,14 @@ export async function findStations(filters: {
   if (filters.operator) push('lower(o.operator_name) = lower(?)', filters.operator);
   if (filters.fuel) {
     push(
-      'exists (select 1 from price_fact_daily p join fuel_dim fd on fd.fuel_id = p.fuel_id where p.outlet_id = o.outlet_id and fd.fuel_code = ?)',
+      `exists (
+        select 1 from price_fact_daily p
+        join fuel_dim fd on fd.fuel_id = p.fuel_id
+        join source_catalog sf on sf.source_id = p.source_id
+        where p.outlet_id = o.outlet_id and fd.fuel_code = ? and fd.active = true
+          and sf.active = true and sf.public_display_enabled = true and sf.rights_status = 'approved'
+          and p.price_kind <> 'wholesale_context'
+      )`,
       filters.fuel,
     );
   }
@@ -127,7 +142,10 @@ export async function countStations(filters: {
   fuel?: string;
   operator?: string;
 }): Promise<number> {
-  const conditions: string[] = ['o.active = true', '(s.active is null or s.active = true)'];
+  const conditions: string[] = [
+    'o.active = true',
+    "s.active = true and s.public_display_enabled = true and s.rights_status = 'approved'",
+  ];
   const params: unknown[] = [];
   let idx = 1;
   const push = (sql: string, value?: unknown): void => {
@@ -141,7 +159,14 @@ export async function countStations(filters: {
   if (filters.operator) push('lower(o.operator_name) = lower(?)', filters.operator);
   if (filters.fuel) {
     push(
-      'exists (select 1 from price_fact_daily p join fuel_dim fd on fd.fuel_id = p.fuel_id where p.outlet_id = o.outlet_id and fd.fuel_code = ?)',
+      `exists (
+        select 1 from price_fact_daily p
+        join fuel_dim fd on fd.fuel_id = p.fuel_id
+        join source_catalog sf on sf.source_id = p.source_id
+        where p.outlet_id = o.outlet_id and fd.fuel_code = ? and fd.active = true
+          and sf.active = true and sf.public_display_enabled = true and sf.rights_status = 'approved'
+          and p.price_kind <> 'wholesale_context'
+      )`,
       filters.fuel,
     );
   }
@@ -163,6 +188,8 @@ export async function findStationByPublicId(publicId: string): Promise<StationLi
       from outlet_dim o
       left join source_catalog s on s.source_id = o.source_id
      where o.public_id = $1
+       and o.active = true
+       and s.active = true and s.public_display_enabled = true and s.rights_status = 'approved'
      limit 1`;
   const res = await query<Record<string, unknown>>(sql, [publicId]);
   return res.rows.length ? mapRow(res.rows[0]) : null;

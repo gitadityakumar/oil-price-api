@@ -16,15 +16,19 @@ export function dailyPriceCacheKey(input: {
 }
 
 export function priceSearchCacheKey(input: {
+  operation?: 'current' | 'history';
   selector: unknown;
   fuels: string[];
   date: string;
   includes: string[];
+  limit?: number;
+  offset?: number;
+  generation?: number;
 }): string {
   const selectorHash = sha256Short(input.selector);
   const fuelHash = sha256Short([...input.fuels].sort());
   const includeHash = sha256Short([...input.includes].sort());
-  return `price:search:v1:${selectorHash}:${fuelHash}:${input.date}:${includeHash}`;
+  return `price:search:v2:${input.operation ?? 'current'}:${selectorHash}:${fuelHash}:${input.date}:${includeHash}:${input.limit ?? 0}:${input.offset ?? 0}:g${input.generation ?? 1}`;
 }
 
 export function pinResolutionCacheKey(pin: string): string {

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createApp } from '../../src/app';
-import { HealthService } from '../../src/modules/health/health.service';
+import { HealthService, SERVICE_VERSION } from '../../src/modules/health/health.service';
 import { StationService } from '../../src/modules/stations/station.service';
 import { SourceService } from '../../src/modules/sources/source.service';
 import { CoverageService } from '../../src/modules/coverage/coverage.service';
@@ -22,9 +22,12 @@ async function ensureSeeded(): Promise<void> {
       '001_initial_schema.sql',
       '002_seed_core_dimensions.sql',
       '003_outlet_public_id.sql',
-      '004_fixture_seed.sql',
       '005_seed_reference_sources.sql',
       '006_api_client_scopes.sql',
+      '007_integrity_governance_and_jobs.sql',
+      '008_seed_source_governance_backfill.sql',
+      '009_cache_eligibility_generation.sql',
+      '900_fixture_seed.sql',
     ];
     for (const file of files) {
       await client.query(await readFile(join(process.cwd(), 'migrations', file), 'utf8'));
@@ -85,7 +88,7 @@ test('health: public output is minimal and contains no secrets', async () => {
   const health = await new HealthService().getHealth();
   assert.equal(health.status, 'ok');
   assert.equal(health.service, 'indian-fuel-price-api');
-  assert.equal(health.version, '1.0.0');
+  assert.equal(health.version, SERVICE_VERSION);
   const text = JSON.stringify(health);
   assert.ok(!text.includes('DATABASE_URL'));
   assert.ok(!text.includes('postgres://'));
@@ -96,7 +99,7 @@ test('route /v1/health returns Task 6 health shape', async () => {
   const res = await call('GET', '/v1/health');
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.data.service, 'indian-fuel-price-api');
-  assert.equal(res.body.data.version, '1.0.0');
+  assert.equal(res.body.data.version, SERVICE_VERSION);
   assert.equal(res.body.meta.api_version, 'v1');
 });
 
