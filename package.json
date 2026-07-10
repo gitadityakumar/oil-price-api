@@ -10,19 +10,31 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test test/**/*.test.ts test/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=1 test/**/*.test.ts test/*.test.ts",
+    "test:db-smoke": "node --import tsx test/db-access.smoke.ts",
+    "test:ci": "tsx src/cli/require-database.ts && npm test && npm run test:db-smoke",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "lint": "npm run typecheck",
+    "lint": "eslint src test",
+    "openapi:lint": "redocly lint docs/openapi.yaml --format=stylish",
+    "check": "npm run lint && npm run typecheck && npm run build && npm run openapi:lint && npm test",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/migrate.ts --seed"
+    "db:seed": "tsx src/db/migrate.ts --seed",
+    "db:fixtures": "tsx src/db/migrate.ts --fixtures"
   },
   "dependencies": {
-    "pg": "latest"
+    "@aws-sdk/client-s3": "3.1084.0",
+    "pg": "8.22.0",
+    "redis": "5.8.2"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/pg": "latest",
-    "tsx": "latest",
-    "typescript": "latest"
+    "@eslint/js": "10.0.1",
+    "@redocly/cli": "2.38.0",
+    "@types/node": "26.1.1",
+    "@types/pg": "8.20.0",
+    "eslint": "10.6.0",
+    "tsx": "4.23.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.63.0",
+    "yaml": "2.9.0"
   }
 }
