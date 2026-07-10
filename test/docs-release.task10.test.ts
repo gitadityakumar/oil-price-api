@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parse } from 'yaml';
 
 const DOCS = [
   'docs/api-contract.md',
@@ -47,12 +48,37 @@ test('task10 docs exist and include release-critical topics', async () => {
   assert.match(runbook, /Replay a Failed Crawl/);
 });
 
-test('openapi lists every MVP endpoint', async () => {
+test('openapi semantically matches the MVP route and version contract', async () => {
   const yaml = await readFile(join(process.cwd(), 'docs/openapi.yaml'), 'utf8');
-  assert.match(yaml, /openapi: 3\.1\.0/);
+  const document = parse(yaml) as {
+    openapi: string;
+    info: { version: string };
+    paths: Record<string, Record<string, { operationId?: string; parameters?: Array<Record<string, unknown>> }>>;
+    components: { securitySchemes: Record<string, unknown>; parameters: Record<string, { schema?: { maximum?: number } }> };
+  };
+  const pkg = JSON.parse(await readFile(join(process.cwd(), 'package.json'), 'utf8')) as { version: string };
+  assert.equal(document.openapi, '3.1.0');
+  assert.equal(document.info.version, pkg.version);
+  const operationIds = new Set<string>();
   for (const endpoint of ENDPOINTS) {
-    assert.ok(yaml.includes(endpoint), `OpenAPI includes ${endpoint}`);
+    const path = document.paths[endpoint];
+    assert.ok(path, `OpenAPI includes ${endpoint}`);
+    for (const operation of Object.values(path)) {
+      assert.ok(operation.operationId, `${endpoint} has an operationId`);
+      assert.equal(operationIds.has(operation.operationId!), false, `operationId ${operation.operationId} is unique`);
+      operationIds.add(operation.operationId!);
+    }
   }
+  assert.ok(document.components.securitySchemes.bearerApiKey);
+  assert.ok(document.components.securitySchemes.clientIdHeader);
+  assert.ok(document.components.securitySchemes.apiKeyHeader);
+  assert.equal(document.components.parameters.CrawlLimit.schema?.maximum, 1000);
+
+  const historyParameters = document.paths['/v1/prices/history'].get.parameters ?? [];
+  const from = historyParameters.find((parameter) => parameter.name === 'from');
+  const to = historyParameters.find((parameter) => parameter.name === 'to');
+  assert.equal(from?.required, true);
+  assert.equal(to?.required, true);
 });
 
 test('forbidden framework dependencies and imports are absent', async () => {

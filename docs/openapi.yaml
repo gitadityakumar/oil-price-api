@@ -1,15 +1,21 @@
 openapi: 3.1.0
 info:
   title: Indian Fuel Price API
-  version: 1.0.0
+  version: 0.1.0
   summary: Normalized Indian fuel price facts with provenance.
+  license:
+    name: Proprietary
+    url: https://oil-api.local/terms
 servers:
   - url: http://localhost:8080
 security:
   - bearerApiKey: []
+  - clientIdHeader: []
+    apiKeyHeader: []
 paths:
   /v1/health:
     get:
+      operationId: getHealth
       security: []
       summary: Health check
       responses:
@@ -19,8 +25,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthEnvelope'
+        '400': { $ref: '#/components/responses/Error' }
   /v1/prices:
     get:
+      operationId: getPrices
       summary: Current or date-specific prices
       parameters:
         - $ref: '#/components/parameters/Pin'
@@ -38,6 +46,7 @@ paths:
         '429': { $ref: '#/components/responses/RateLimited' }
   /v1/prices/history:
     get:
+      operationId: getPriceHistory
       summary: Historical prices
       parameters:
         - $ref: '#/components/parameters/Pin'
@@ -47,9 +56,11 @@ paths:
         - $ref: '#/components/parameters/Fuel'
         - name: from
           in: query
+          required: true
           schema: { type: string, format: date }
         - name: to
           in: query
+          required: true
           schema: { type: string, format: date }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Offset'
@@ -58,6 +69,7 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
   /v1/prices/{id}/components:
     get:
+      operationId: getPriceComponents
       summary: Price components
       parameters:
         - $ref: '#/components/parameters/Id'
@@ -75,6 +87,7 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
   /v1/stations:
     get:
+      operationId: listStations
       summary: Station discovery
       parameters:
         - $ref: '#/components/parameters/Pin'
@@ -88,8 +101,10 @@ paths:
         - $ref: '#/components/parameters/Offset'
       responses:
         '200': { $ref: '#/components/responses/StationList' }
+        '400': { $ref: '#/components/responses/Error' }
   /v1/stations/{id}:
     get:
+      operationId: getStation
       summary: Station detail
       parameters:
         - $ref: '#/components/parameters/Id'
@@ -104,8 +119,10 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: '#/components/schemas/Station' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/stations/{id}/prices:
     get:
+      operationId: getStationPrices
       summary: Station-level prices
       parameters:
         - $ref: '#/components/parameters/Id'
@@ -116,8 +133,10 @@ paths:
         - $ref: '#/components/parameters/Offset'
       responses:
         '200': { $ref: '#/components/responses/PriceList' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/sources:
     get:
+      operationId: listSources
       summary: Source catalog
       parameters:
         - name: type
@@ -133,8 +152,10 @@ paths:
         - $ref: '#/components/parameters/Offset'
       responses:
         '200': { $ref: '#/components/responses/SourceList' }
+        '400': { $ref: '#/components/responses/Error' }
   /v1/sources/{id}:
     get:
+      operationId: getSource
       summary: Source detail by key
       parameters:
         - $ref: '#/components/parameters/Id'
@@ -149,8 +170,10 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: '#/components/schemas/Source' }
+        '404': { $ref: '#/components/responses/Error' }
   /v1/coverage:
     get:
+      operationId: getCoverage
       summary: Coverage aggregation
       parameters:
         - $ref: '#/components/parameters/Fuel'
@@ -171,8 +194,10 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/Coverage' }
+        '400': { $ref: '#/components/responses/Error' }
   /v1/internal/sources/health:
     get:
+      operationId: getSourceHealth
       summary: Internal source health
       security:
         - bearerApiKey: []
@@ -192,6 +217,7 @@ paths:
         '403': { $ref: '#/components/responses/Error' }
   /v1/internal/crawl-runs:
     get:
+      operationId: listCrawlRuns
       summary: Internal crawl audit
       parameters:
         - name: source_key
@@ -202,11 +228,11 @@ paths:
           schema: { $ref: '#/components/schemas/CrawlStatus' }
         - name: from
           in: query
-          schema: { type: string, format: date-time }
+          schema: { type: string, format: date }
         - name: to
           in: query
-          schema: { type: string, format: date-time }
-        - $ref: '#/components/parameters/Limit'
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/CrawlLimit'
         - $ref: '#/components/parameters/Offset'
       responses:
         '200':
@@ -221,8 +247,10 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/CrawlRun' }
+        '400': { $ref: '#/components/responses/Error' }
   /v1/internal/ingestion/runs:
     post:
+      operationId: createIngestionRun
       summary: Trigger manual ingestion
       requestBody:
         required: true
@@ -250,12 +278,21 @@ paths:
                         properties:
                           crawl_run_id: { type: integer }
                           source_key: { type: string }
-                          status: { type: string, const: started }
+                          status: { type: string, enum: [queued, skipped] }
+        '403': { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     bearerApiKey:
       type: http
       scheme: bearer
+    clientIdHeader:
+      type: apiKey
+      in: header
+      name: X-Client-ID
+    apiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
   parameters:
     Id:
       name: id
@@ -298,6 +335,10 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    CrawlLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 50 }
     Offset:
       name: offset
       in: query
@@ -410,7 +451,7 @@ components:
       enum: [PETROL, DIESEL, CNG, PNG, LNG, LPG]
     SourceType:
       type: string
-      enum: [ppac, omc, cgd, regulator, aggregator, exchange, internal]
+      enum: [ppac, omc, cgd, regulator, aggregator, exchange]
     ReliabilityTier:
       type: string
       enum: [highest, high, medium, low]
@@ -481,6 +522,9 @@ components:
         reliability_tier: { $ref: '#/components/schemas/ReliabilityTier' }
         commercial_use_allowed: { type: [boolean, 'null'] }
         active: { type: boolean }
+        ingestion_enabled: { type: boolean }
+        public_display_enabled: { type: boolean }
+        rights_status: { type: string, enum: [pending, approved, restricted, denied] }
     SourceHealth:
       type: object
       properties:
