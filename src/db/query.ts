@@ -27,9 +27,8 @@ export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(
     }
     return result;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('query failed', { text: text.slice(0, 200), err: message });
-    throw new AppError('DB_ERROR', message, 500, { text: text.slice(0, 200) });
+    log.error('query failed', { error_type: errorType(err) });
+    throw new AppError('DB_ERROR', 'Database operation failed', 500, undefined, err);
   }
 }
 
@@ -49,8 +48,11 @@ export async function queryOn<T extends pg.QueryResultRow = pg.QueryResultRow>(
     log.debug('query(tx)', { text: text.slice(0, 120), duration_ms: durationMs, rows: result.rowCount });
     return result;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error('query(tx) failed', { text: text.slice(0, 200), err: message });
-    throw new AppError('DB_ERROR', message, 500, { text: text.slice(0, 200) });
+    log.error('query(tx) failed', { error_type: errorType(err) });
+    throw new AppError('DB_ERROR', 'Database operation failed', 500, undefined, err);
   }
+}
+
+function errorType(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
 }

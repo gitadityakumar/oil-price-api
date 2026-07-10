@@ -12,6 +12,7 @@ import { buildRouter } from './routes';
 import { logger } from './core/logging/logger';
 import { AppError } from './core/errors/app-error';
 import { requestMetricsMiddleware } from './core/observability/request-metrics';
+import { errorEnvelope } from './core/http/envelope';
 
 const log = logger.child('app');
 
@@ -30,11 +31,11 @@ export class App {
     const middlewares: Middleware[] = [
       requestIdMiddleware,
       accessLogMiddleware,
+      requestMetricsMiddleware,
+      errorHandlerMiddleware,
       corsMiddleware(options.cors),
       securityHeadersMiddleware,
       jsonBodyMiddleware(),
-      errorHandlerMiddleware,
-      requestMetricsMiddleware,
       ...(options.middlewares ?? []),
       notFoundMiddleware,
     ];
@@ -67,16 +68,16 @@ export class App {
         if (!ctx.responded && !res.headersSent) {
           res.statusCode = appErr.statusCode;
           res.setHeader('content-type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: { code: appErr.code, message: appErr.message } }));
+          res.end(JSON.stringify(errorEnvelope(ctx.requestId, appErr.code, appErr.publicMessage, appErr.publicDetails)));
         } else if (!res.writableEnded) {
           res.destroy();
         }
-        log.error('unhandled after pipeline', { err: appErr.message });
+        log.error('unhandled after pipeline', { request_id: ctx.requestId, code: appErr.code });
       } finally {
         if (!ctx.responded && !res.writableEnded) {
           res.statusCode = 404;
           res.setHeader('content-type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'No response written' } }));
+          res.end(JSON.stringify(errorEnvelope(ctx.requestId, 'NOT_FOUND', 'No response written')));
         }
       }
     };

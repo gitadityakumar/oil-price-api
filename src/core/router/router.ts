@@ -57,9 +57,9 @@ export class Router {
       const { matched, params } = matchPattern(route.compiled, ctx.path);
       if (!matched) continue;
       pathMatched = true;
+      ctx.routePattern ??= route.pattern;
       if (route.method !== method) continue;
       ctx.params = params;
-      ctx.routePattern = route.pattern;
       if ((route.options.auth ?? 'none') === 'api_key') {
         await requireApiKeyAuth(ctx);
         if (!ctx.res.hasHeader('cache-control')) {

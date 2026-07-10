@@ -145,13 +145,14 @@ export function resolvePagination(query: URLSearchParams, maxLimit = 100): { lim
 
 function parseIntOr(value: string | null, fallback: number): number {
   if (value === null || value === '') return fallback;
-  const n = Number.parseInt(value, 10);
+  if (!/^-?\d+$/.test(value)) return fallback;
+  const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
 
 function isValidDate(s: string): boolean {
   const d = new Date(s + 'T00:00:00Z');
-  return !Number.isNaN(d.getTime());
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
 
 function validationError(field: string, reason: string): AppError {

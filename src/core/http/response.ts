@@ -96,7 +96,7 @@ export function redirect(ctx: HttpContext, location: string, statusCode = 302): 
 /** Standard error envelope: { error: { code, message, details, request_id } } */
 export function error(ctx: HttpContext, appError: AppError): void {
   ctx.errorCode = appError.code;
-  const payload = errorEnvelope(ctx.requestId, appError.code, appError.message, appError.details);
+  const payload = errorEnvelope(ctx.requestId, appError.code, appError.publicMessage, appError.publicDetails);
   writeJson(ctx, appError.statusCode, payload);
 }
 

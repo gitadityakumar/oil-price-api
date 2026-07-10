@@ -6,7 +6,7 @@ export const requestMetricsMiddleware: Middleware = async (ctx, next) => {
     await next();
   } finally {
     const durationMs = Date.now() - ctx.startedAt;
-    const route = ctx.routePattern ?? ctx.path;
+    const route = ctx.routePattern ?? '__unmatched__';
     const status = String(ctx.res.statusCode);
     metrics.increment('http_requests_total', { route, status });
     metrics.observeDuration('http_request_duration_ms', durationMs, { route, status });

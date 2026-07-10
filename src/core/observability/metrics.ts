@@ -6,20 +6,24 @@ export class MetricsRegistry {
   private counters = new Map<CounterKey, number>();
   private durationBuckets = new Map<CounterKey, number>();
   private gauges = new Map<CounterKey, number>();
+  private droppedSeries = 0;
+
+  constructor(private readonly maxSeriesPerMetricType = 10_000) {}
 
   increment(name: string, labels: MetricLabels = {}, amount = 1): void {
     const key = metricKey(name, labels);
-    this.counters.set(key, (this.counters.get(key) ?? 0) + amount);
+    this.setWithLimit(this.counters, key, (this.counters.get(key) ?? 0) + amount);
   }
 
   observeDuration(name: string, durationMs: number, labels: MetricLabels = {}): void {
     const bucket = bucketDuration(durationMs);
     const key = metricKey(name, { ...labels, bucket });
-    this.durationBuckets.set(key, (this.durationBuckets.get(key) ?? 0) + 1);
+    this.setWithLimit(this.durationBuckets, key, (this.durationBuckets.get(key) ?? 0) + 1);
   }
 
   setGauge(name: string, value: number, labels: MetricLabels = {}): void {
-    this.gauges.set(metricKey(name, labels), value);
+    const key = metricKey(name, labels);
+    this.setWithLimit(this.gauges, key, value);
   }
 
   snapshot(): Record<string, Record<string, number>> {
@@ -27,6 +31,7 @@ export class MetricsRegistry {
       counters: Object.fromEntries(this.counters),
       duration_buckets: Object.fromEntries(this.durationBuckets),
       gauges: Object.fromEntries(this.gauges),
+      internal: { dropped_series_total: this.droppedSeries },
     };
   }
 
@@ -34,6 +39,15 @@ export class MetricsRegistry {
     this.counters.clear();
     this.durationBuckets.clear();
     this.gauges.clear();
+    this.droppedSeries = 0;
+  }
+
+  private setWithLimit(map: Map<CounterKey, number>, key: CounterKey, value: number): void {
+    if (!map.has(key) && map.size >= this.maxSeriesPerMetricType) {
+      this.droppedSeries += 1;
+      return;
+    }
+    map.set(key, value);
   }
 }
 

@@ -23,7 +23,6 @@ export async function withTransaction<T>(
   fn: (tx: { client: DbClient; query: TxQuery }) => Promise<T>,
 ): Promise<T> {
   const client = await connect();
-  let released = false;
   try {
     await client.query('BEGIN');
     const txQuery: TxQuery = ((text: string, params?: unknown[]) =>
@@ -42,10 +41,7 @@ export async function withTransaction<T>(
     await client.query('COMMIT');
     return result;
   } finally {
-    if (!released) {
-      client.release();
-      released = true;
-    }
+    client.release();
   }
 }
 

@@ -45,8 +45,9 @@ export function buildPagination(input: PaginationInput): PaginationOutput {
 
 function toInt(value: unknown, fallback: number): number {
   if (value === undefined || value === null || value === '') return fallback;
-  const raw = Array.isArray(value) ? value[0] : value;
+  const raw: unknown = Array.isArray(value) ? (value as unknown[])[0] : value;
   if (raw === undefined) return fallback;
+  if (typeof raw !== 'string' && typeof raw !== 'number') return fallback;
   const n = Number.parseInt(String(raw), 10);
   return Number.isFinite(n) ? n : fallback;
 }

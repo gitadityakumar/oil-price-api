@@ -3,6 +3,7 @@ import { config } from './config/env';
 import { createApp } from './app';
 import { logger } from './core/logging/logger';
 import { closePool } from './db/pool';
+import { closeRedis } from './core/redis/redis-client';
 
 const log = logger.child('server');
 
@@ -31,19 +32,26 @@ async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   log.info('shutting_down', { signal });
-  server.close((err) => {
-    if (err) log.warn('server close error', { err: err.message });
-    log.info('server closed');
-  });
-  // Stop accepting new connections; close DB pool promptly.
-  setTimeout(() => {
-    void closePool().finally(() => process.exit(0));
-  }, 0);
-  // Hard exit if something still hangs (not unref'd so it fires).
-  setTimeout(() => {
+  const deadline = setTimeout(() => {
     log.warn('forced_exit', { reason: 'shutdown timeout' });
+    server.closeAllConnections?.();
     process.exit(1);
   }, 10_000);
+  try {
+    server.closeIdleConnections?.();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    log.info('server closed');
+    await closeRedis();
+    await closePool();
+    clearTimeout(deadline);
+    process.exitCode = 0;
+  } catch (error) {
+    clearTimeout(deadline);
+    log.error('graceful shutdown failed', { error_type: error instanceof Error ? error.name : typeof error });
+    process.exitCode = 1;
+  }
 }
 
 process.on('SIGINT', () => void shutdown('SIGINT'));

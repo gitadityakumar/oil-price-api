@@ -34,22 +34,50 @@ export class AppError extends Error {
   readonly statusCode: number;
   readonly details?: unknown;
   readonly isOperational: boolean;
+  readonly cause?: unknown;
 
-  constructor(code: AppErrorCode, message: string, statusCode?: number, details?: unknown) {
+  constructor(code: AppErrorCode, message: string, statusCode?: number, details?: unknown, cause?: unknown) {
     super(message);
     this.name = 'AppError';
     this.code = code;
     this.statusCode = statusCode ?? STATUS_BY_CODE[code];
     this.details = details;
     this.isOperational = true;
+    this.cause = cause;
     Error.captureStackTrace?.(this, this.constructor);
   }
 
   static fromUnknown(error: unknown): AppError {
     if (error instanceof AppError) return error;
     if (error instanceof Error) {
-      return new AppError('INTERNAL_ERROR', error.message);
+      return new AppError('INTERNAL_ERROR', 'An unexpected error occurred', undefined, undefined, error);
     }
-    return new AppError('INTERNAL_ERROR', 'An unexpected error occurred');
+    return new AppError('INTERNAL_ERROR', 'An unexpected error occurred', undefined, undefined, error);
+  }
+
+  get publicMessage(): string {
+    switch (this.code) {
+      case 'CONFIG_ERROR':
+      case 'DB_ERROR':
+      case 'INTERNAL_ERROR':
+        return 'An unexpected error occurred';
+      case 'UPSTREAM_ERROR':
+        return 'An upstream service is unavailable';
+      case 'NOT_IMPLEMENTED':
+        return 'The requested operation is not available';
+      default:
+        return this.message;
+    }
+  }
+
+  get publicDetails(): unknown {
+    switch (this.code) {
+      case 'VALIDATION_ERROR':
+      case 'METHOD_NOT_ALLOWED':
+      case 'RATE_LIMITED':
+        return this.details;
+      default:
+        return undefined;
+    }
   }
 }

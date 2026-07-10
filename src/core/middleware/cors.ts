@@ -23,6 +23,10 @@ export function corsMiddleware(options: CorsOptions = {}): Middleware {
   const credentials = options.credentials ?? false;
   const maxAge = options.maxAge ?? MAX_AGE;
 
+  if (credentials && allowOrigin === '*') {
+    throw new TypeError('CORS credentials cannot be enabled with a wildcard origin');
+  }
+
   return async (ctx, next) => {
     ctx.res.setHeader('access-control-allow-origin', allowOrigin);
     if (credentials) {
