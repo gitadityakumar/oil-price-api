@@ -42,10 +42,13 @@ async function recordMigration(version: string, client: ExecClient): Promise<voi
   );
 }
 
-async function applyMigrations(seedOnly: boolean): Promise<void> {
+type MigrationMode = 'schema' | 'seed' | 'fixtures';
+
+async function applyMigrations(mode: MigrationMode): Promise<void> {
   const pool = getPool();
   const client = await pool.connect();
   try {
+    await client.query("select pg_advisory_lock(hashtext('oil-api-migrations'))");
     await client.query(MIGRATION_TABLE_SQL);
     log.info('schema_migration table ready');
 
@@ -57,15 +60,11 @@ async function applyMigrations(seedOnly: boolean): Promise<void> {
 
     for (const file of files) {
       const version = basename(file, '.sql');
-      const isSeed = /seed/i.test(version);
+      const isFixture = /fixture/i.test(version);
+      const isSeed = /seed/i.test(version) && !isFixture;
 
-      if (seedOnly) {
-        // --seed: apply all schema migrations AND seed files
-        // (seeds depend on schema being fully up to date).
-      } else {
-        // default: apply non-seed migrations only; skip seed files.
-        if (isSeed) continue;
-      }
+      if (mode === 'schema' && (isSeed || isFixture)) continue;
+      if (mode === 'seed' && isFixture) continue;
 
       const applied = await isApplied(version, client);
       if (applied) {
@@ -90,15 +89,26 @@ async function applyMigrations(seedOnly: boolean): Promise<void> {
       }
     }
   } finally {
+    await client.query("select pg_advisory_unlock(hashtext('oil-api-migrations'))").catch(() => undefined);
     client.release();
   }
 }
 
 async function main(): Promise<void> {
-  const seedOnly = process.argv.includes('--seed');
-  log.info('migrate starting', { seed_only: seedOnly, dir: MIGRATIONS_DIR });
+  const mode: MigrationMode = process.argv.includes('--fixtures')
+    ? 'fixtures'
+    : process.argv.includes('--seed')
+      ? 'seed'
+      : 'schema';
+
+  if (mode === 'fixtures' && process.env.NODE_ENV === 'production') {
+    log.error('fixtures cannot be loaded in production');
+    process.exitCode = 1;
+    return;
+  }
+  log.info('migrate starting', { mode, dir: MIGRATIONS_DIR });
   try {
-    await applyMigrations(seedOnly);
+    await applyMigrations(mode);
     log.info('migrate complete');
   } catch (err) {
     log.error('migrate aborted', { err: err instanceof Error ? err.message : String(err) });

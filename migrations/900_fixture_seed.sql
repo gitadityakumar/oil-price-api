@@ -1,7 +1,14 @@
--- 003_fixture_seed.sql
+-- 900_fixture_seed.sql
 -- Dev/test fixture data for the price read API: a geography row, an outlet, a
 -- pincode_resolution entry, and a couple of price facts with components.
--- Idempotent via ON CONFLICT; safe to re-run.
+-- Idempotent via ON CONFLICT; loaded only by the explicit fixture command.
+
+update source_catalog
+   set rights_status = 'approved',
+       commercial_use_allowed = true,
+       public_display_enabled = true,
+       ingestion_enabled = true
+ where source_key in ('ppac_rsp', 'iocl_retail', 'bpcl_retail', 'igl_prices');
 
 insert into geography_dim (geography_id, country_code, state_name, state_code, district_name, city_name, area_name, pincode, latitude, longitude, canonical_label)
 values (1001, 'IN', 'Delhi', 'DL', 'New Delhi', 'Delhi', 'Connaught Place', '110001', 28.6315000, 77.2167000, 'Connaught Place, Delhi, DL 110001')
@@ -59,7 +66,7 @@ on conflict (price_fact_id) do update set
 insert into price_fact_daily (price_fact_id, public_id, source_id, outlet_id, geography_id, fuel_id, applicable_date, effective_at, observed_at, price_value, currency_code, price_kind, confidence_score, raw_document_url, raw_hash, attribution_text)
 select 7004, 'price_example_alt', s.source_id, null, 1001, f.fuel_id, '2026-07-09', '2026-07-09T00:30:00.000Z', '2026-07-09T00:30:00.000Z', 96.50, 'INR', 'retail', 0.60, null, 'sha256:alt', 'Lower-confidence duplicate.'
   from source_catalog s, fuel_dim f
- where s.source_key = 'ppac_rsp' and f.fuel_code = 'PETROL'
+ where s.source_key = 'bpcl_retail' and f.fuel_code = 'PETROL'
 on conflict (price_fact_id) do update set
   price_value = excluded.price_value,
   confidence_score = excluded.confidence_score;

@@ -14,15 +14,15 @@ on conflict (fuel_code) do update set
   retail_unit = excluded.retail_unit;
 
 insert into source_catalog (source_key, source_name, source_type, operator_name, canonical_url, terms_summary, commercial_use_allowed, reliability_tier, active) values
-  ('ppac_rsp',            'PPAC RSP Archive',          'ppac',      'Petroleum Planning & Analysis Cell', 'https://ppac.gov.in/',                 'Official government RSP archive; public sector reference data.',    true,  'highest', true),
-  ('iocl_retail',         'Indian Oil Retail Prices',  'omc',       'Indian Oil Corporation Ltd',         'https://iocl.com/',                    'OMC public price and locator surfaces.',                            true,  'highest', true),
-  ('bpcl_retail',         'BPCL Retail Prices',        'omc',       'Bharat Petroleum Corporation Ltd',  'https://www.bpcl.in/',                  'OMC petro-prices and locator.',                                     true,  'highest', true),
-  ('hpcl_retail',         'HPCL Retail Prices',        'omc',       'Hindustan Petroleum Corporation Ltd','https://www.hindustanpetroleum.com/',  'OMC price buildup / RSP map.',                                       true,  'highest', true),
-  ('igl_prices',          'Indraprastha Gas Limited',  'cgd',       'Indraprastha Gas Ltd',               'https://www.igl.co.in/',               'CGD current and chronology CNG/PNG rate cards.',                    true,  'high',    true),
-  ('gujarat_gas_prices',  'Gujarat Gas Prices',       'cgd',       'Gujarat Gas Ltd',                    'https://www.gujaratgas.com/',           'CGD area-wise CNG/PNG prices.',                                     true,  'high',    true),
-  ('mgl_prices',          'Mahanagar Gas Limited',    'cgd',       'Mahanagar Gas Ltd',                 'https://www.mngl.org/',                 'CGD Mumbai rate cards.',                                            true,  'high',    true),
-  ('mngl_prices',         'MNGL Prices',              'cgd',       'Mahanagar Natural Gas Ltd',          'https://www.mngl.org/',                 'CGD current and history pages.',                                    true,  'high',    true),
-  ('cugl_prices',         'CUGL Prices',              'cgd',       'Central U.P. Gas Ltd',               'https://www.cugl.in/',                  'CGD CNG/PNG/city nodes.',                                           true,  'high',    true),
+  ('ppac_rsp',            'PPAC RSP Archive',          'ppac',      'Petroleum Planning & Analysis Cell', 'https://ppac.gov.in/retail-selling-price-rsp-of-petrol-diesel-and-domestic-lpg/price-build-up-of-petrol-and-diesel', 'Official government RSP archive; rights review pending.', null, 'highest', true),
+  ('iocl_retail',         'Indian Oil Retail Prices',  'omc',       'Indian Oil Corporation Ltd',         'https://iocl.com/petrol-diesel-price', 'OMC public price and locator surfaces; rights review pending.', null, 'highest', true),
+  ('bpcl_retail',         'BPCL Retail Prices',        'omc',       'Bharat Petroleum Corporation Ltd',  'https://www.bharatpetroleum.in/our-businesses/fuels-and-services/petro-prices', 'OMC petro-prices and locator; rights review pending.', null, 'highest', true),
+  ('hpcl_retail',         'HPCL Retail Prices',        'omc',       'Hindustan Petroleum Corporation Ltd','https://www.hindustanpetroleum.com/pricebuildup', 'OMC price buildup / RSP map; rights review pending.', null, 'highest', true),
+  ('igl_prices',          'Indraprastha Gas Limited',  'cgd',       'Indraprastha Gas Ltd',               'https://www.iglonline.net/cng-png-prices', 'CGD current and chronology rate cards; rights review pending.', null, 'high', true),
+  ('gujarat_gas_prices',  'Gujarat Gas Prices',       'cgd',       'Gujarat Gas Ltd',                    'https://www.gujaratgas.com/check-gas-price/', 'CGD area-wise prices; rights review pending.', null, 'high', true),
+  ('mgl_prices',          'Mahanagar Gas Limited',    'cgd',       'Mahanagar Gas Ltd',                 'https://www.mahanagargas.com/cng/customer-zone/cng-rate-card', 'CGD Mumbai rate cards; rights review pending.', null, 'high', true),
+  ('mngl_prices',         'MNGL Prices',              'cgd',       'Mahanagar Natural Gas Ltd',          'https://www.mngl.in/our-services/check-rates', 'CGD current and history pages; rights review pending.', null, 'high', true),
+  ('cugl_prices',         'CUGL Prices',              'cgd',       'Central U.P. Gas Ltd',               'https://www.cugl.co.in/our-business/CNG/price', 'CGD city nodes; rights review pending.', null, 'high', true),
   ('pngrb_reference',     'PNGRB Reference',          'regulator', 'Petroleum & Natural Gas Regulatory Board','https://pngrb.gov.in/',          'Regulator reference; validation only, not commercial display.',     false, 'high',    true)
 on conflict (source_key) do update set
   source_name           = excluded.source_name,
