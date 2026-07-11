@@ -9,9 +9,20 @@ mode, and PostgreSQL via raw `pg`.
 
 ## Quick start
 
+**Full stack (API + workers + Postgres + Redis + MinIO):**
+
 ```bash
+docker compose up --build
+# API: http://localhost:8080/v1/health
+```
+
+**Host Node + Compose infra only:**
+
+```bash
+docker compose up -d postgres redis minio
 npm ci
 cp .env.example .env
+# Point DATABASE_URL / REDIS_URL at localhost:55432 / :56379 (see .env.example)
 npm run db:migrate
 npm run db:seed
 npm run db:fixtures # local fixture data only

@@ -23,15 +23,48 @@ REDIS_URL=redis://localhost:56379
 API_KEY_PEPPER=dev-pepper
 ```
 
-## Postgres
+## Full stack with Docker
 
-The repository includes `compose.yaml`. With a Compose provider:
+Build the minimal app image and start API, scheduler, worker, Postgres, Redis,
+and MinIO on one Compose network:
+
+```bash
+docker compose up --build
+```
+
+- API: `http://localhost:8080/v1/health`
+- Postgres (host): `localhost:55432`
+- Redis (host): `localhost:56379`
+- MinIO API / console: `localhost:59000` / `localhost:59001`
+
+Compose applies schema + seed automatically (`migrate`, `migrate-seed`). Optional
+fixture rows:
+
+```bash
+docker compose --profile fixtures run --rm migrate-fixtures
+```
+
+Create an API client against the running stack:
+
+```bash
+docker compose exec api node dist/cli/create-api-client.js \
+  --name "Local Dev" --tier free \
+  --scopes read:public,read:internal,write:ingestion
+```
+
+Inside Compose, services reach each other by name (`postgres`, `redis`,
+`minio`), not `localhost`. The app image is multi-stage Alpine; production
+deps only.
+
+## Postgres (infra only)
+
+Infra containers without the Node app:
 
 ```bash
 docker compose up -d postgres redis minio
 ```
 
-Then:
+Then on the host:
 
 ```bash
 npm run db:migrate

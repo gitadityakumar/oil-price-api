@@ -1,3 +1,38 @@
+# Full local stack: postgres + redis + minio + migrate + api + scheduler + worker
+#
+#   docker compose up --build
+#
+# Infra only (host-run Node app):
+#
+#   docker compose up -d postgres redis minio
+#
+# Optional fixture data (after migrate-seed):
+#
+#   docker compose --profile fixtures run --rm migrate-fixtures
+
+x-app-environment: &app-environment
+  NODE_ENV: development
+  PORT: "8080"
+  LOG_LEVEL: info
+  DATABASE_URL: postgres://oilapi:oilapi@postgres:5432/oilapi
+  REDIS_URL: redis://redis:6379
+  API_KEY_PEPPER: compose-local-pepper-change-me
+  ARTIFACT_STORAGE_MODE: s3
+  S3_BUCKET: oil-api-artifacts
+  S3_REGION: us-east-1
+  S3_ENDPOINT: http://minio:9000
+  S3_FORCE_PATH_STYLE: "true"
+  S3_PREFIX: oil-api/artifacts
+  # AWS SDK default credential chain (MinIO root user)
+  AWS_ACCESS_KEY_ID: oilapi
+  AWS_SECRET_ACCESS_KEY: oilapi-secret
+  INGESTION_LIVE_FETCH: "false"
+  INGESTION_USER_AGENT: OilAPI/0.1 docker-compose
+
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -7,6 +42,8 @@ services:
       POSTGRES_PASSWORD: oilapi
     ports:
       - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oilapi -d oilapi"]
       interval: 2s
@@ -17,6 +54,8 @@ services:
     image: redis:7-alpine
     ports:
       - "56379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
@@ -32,8 +71,121 @@ services:
     ports:
       - "59000:9000"
       - "59001:9001"
+    volumes:
+      - minio_data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 2s
       timeout: 2s
       retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 oilapi oilapi-secret
+        mc mb -p local/oil-api-artifacts || true
+        mc anonymous set none local/oil-api-artifacts || true
+    restart: "no"
+
+  # Schema only (idempotent). Shell-free image CMD override.
+  migrate:
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    command: ["node", "dist/db/migrate.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  migrate-seed:
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    command: ["node", "dist/db/migrate.js", "--seed"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  migrate-fixtures:
+    profiles: ["fixtures"]
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    command: ["node", "dist/db/migrate.js", "--fixtures"]
+    depends_on:
+      migrate-seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  api:
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # Explicit HTTP probe (same idea as Dockerfile HEALTHCHECK).
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  scheduler:
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    command: ["node", "dist/workers/scheduler.js"]
+    depends_on:
+      migrate-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    # No HTTP server — disable image HEALTHCHECK so status is not false-unhealthy.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  worker:
+    image: oil-api:local
+    build: *app-build
+    environment: *app-environment
+    command: ["node", "dist/workers/ingestion-worker.js"]
+    depends_on:
+      migrate-seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # No HTTP server — disable image HEALTHCHECK so status is not false-unhealthy.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
