@@ -34,5 +34,10 @@ Thumbs.db
 .agents/
 .codex/
 
+# Local VM setup and smoke-test tooling (not part of the API repo)
+.smoke-frontend/
+.deploy/
+.ssh-askpass.tmp
+
 # TypeScript build info
 *.tsbuildinfo
