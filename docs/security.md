@@ -20,9 +20,18 @@ Hash comparison uses `timingSafeEqual` and handles unequal lengths safely.
 ## Production Requirements
 
 - `API_KEY_PEPPER` is required in production.
+- `REDIS_URL` is required in production (rate limiting fails closed without it).
+- `DATABASE_URL` is required outside pure local/test shortcuts.
 - Do not log API keys.
 - Log only `client_id`, tier, request ID, status, cache status, and error code.
 - Revoke compromised clients by setting `api_client.status = 'revoked'`.
+
+### Local Compose pepper
+
+`compose.yaml` uses a fixed local pepper (`compose-local-pepper-change-me`).
+Host `.env.example` defaults to `dev-pepper`. Keys only work with the API that
+was configured with the **same** pepper. See [docker.md](./docker.md) and
+[local-development.md](./local-development.md).
 
 ## Scopes
 

@@ -1,6 +1,43 @@
 # Operational Runbook
 
-## Start API Server
+## Docker (recommended local stack)
+
+Full API + scheduler + worker + Postgres + Redis + MinIO:
+
+```bash
+docker compose up --build
+curl -sS http://localhost:8080/v1/health
+```
+
+Create a client against the Compose stack (pepper already set in compose):
+
+```bash
+docker compose exec api node dist/cli/create-api-client.js \
+  --name "Ops Client" --tier free \
+  --scopes read:public,read:internal,write:ingestion
+```
+
+Load SQL fixtures / HTML fixture crawls:
+
+```bash
+docker compose --profile fixtures run --rm migrate-fixtures
+
+docker compose run --rm --no-deps \
+  -v "$PWD/fixtures:/app/fixtures:ro" \
+  worker node dist/workers/ingestion-worker.js --fixture ppac_rsp
+```
+
+Logs and lifecycle:
+
+```bash
+docker compose logs -f api worker scheduler
+docker compose down          # keep volumes
+docker compose down -v       # wipe DB/redis/minio data
+```
+
+See [docker.md](./docker.md) for ports, image layout, and troubleshooting.
+
+## Start API Server (host Node)
 
 ```bash
 npm install
@@ -19,6 +56,8 @@ The service uses native `node:http`.
 
 ## Run Migrations and Seeds
 
+Host:
+
 ```bash
 npm run db:migrate
 npm run db:seed
@@ -26,22 +65,47 @@ npm run db:seed
 npm run db:fixtures
 ```
 
+Compose (automatic on `docker compose up`; manual re-run):
+
+```bash
+docker compose run --rm migrate
+docker compose run --rm migrate-seed
+docker compose --profile fixtures run --rm migrate-fixtures
+```
+
 `db:migrate` applies schema migrations. `db:seed` applies schema and reference
-seeds but excludes fixtures. `db:fixtures` explicitly loads local/test data.
+seeds but excludes fixtures. `db:fixtures` explicitly loads local/test data and
+is blocked when `NODE_ENV=production`.
 
 ## Create API Clients
 
+Host (pepper must match the API process):
+
 ```bash
-API_KEY_PEPPER=dev-pepper DATABASE_URL=postgres://postgres:postgres@localhost:5432/oilapi \
+API_KEY_PEPPER=dev-pepper \
+DATABASE_URL=postgres://oilapi:oilapi@localhost:55432/oilapi \
   npx tsx src/cli/create-api-client.ts --name "Dev Client" --tier free --scopes read:public
 ```
+
+Compose:
+
+```bash
+docker compose exec api node dist/cli/create-api-client.js \
+  --name "Dev Client" --tier free --scopes read:public
+```
+
+UI: start `.smoke-frontend` and open http://localhost:5173/keys.html
 
 The plaintext `api_key` is printed once. Store only the shown value in the
 client secret manager. The database stores only the HMAC hash.
 
 ## Start Scheduler and Worker
 
-Start the durable PostgreSQL-backed scheduler and worker as separate processes:
+### Docker
+
+Included in `docker compose up` as services `scheduler` and `worker`.
+
+### Host Node
 
 ```bash
 npx tsx src/workers/scheduler.ts

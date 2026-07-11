@@ -1,6 +1,8 @@
 # Release Checklist
 
 - [x] Environment variables documented in `.env.example`.
+- [x] Full local stack documented via `docs/docker.md` and
+  `docker compose up --build` (API, workers, Postgres, Redis, MinIO).
 - [x] Migrations run cleanly from blank database through `npm run db:migrate`
   when `DATABASE_URL` points at Postgres.
 - [x] Seeds are idempotent through `npm run db:seed`.
