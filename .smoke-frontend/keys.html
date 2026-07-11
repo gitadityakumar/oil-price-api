@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Create API key — Oil API Smoke</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header__brand">
+          <span class="header__logo" aria-hidden="true">⛽</span>
+          <div>
+            <h1 class="header__title">Indian Fuel Price API</h1>
+            <p class="header__subtitle">Smoke-test frontend</p>
+          </div>
+        </div>
+        <nav class="header__nav" aria-label="Primary">
+          <a class="nav-link" href="/">Prices</a>
+          <a class="nav-link nav-link--active" href="/keys.html" aria-current="page">Create key</a>
+        </nav>
+      </header>
+
+      <section class="panel">
+        <h2 class="panel__title">Create API client</h2>
+        <p class="panel__hint">
+          Local-only helper. The Vite dev server runs the oil-api
+          <code>create-api-client</code> CLI against your Postgres (Compose default:
+          <code>localhost:55432</code>). The plaintext key is shown
+          <strong>once</strong> — copy it before leaving this page.
+        </p>
+
+        <form id="create-key-form" class="create-form" novalidate>
+          <label class="field">
+            <span class="field__label">Client name</span>
+            <input
+              type="text"
+              id="client-name"
+              class="field__input"
+              required
+              maxlength="120"
+              placeholder="e.g. Smoke UI Local"
+              autocomplete="off"
+            />
+          </label>
+
+          <div class="field-row">
+            <label class="field field--grow">
+              <span class="field__label">Tier</span>
+              <select id="client-tier" class="field__input">
+                <option value="free" selected>free</option>
+                <option value="standard">standard</option>
+                <option value="pro">pro</option>
+              </select>
+            </label>
+            <label class="field field--checkbox">
+              <span class="field__label">Key environment</span>
+              <span class="checkbox-line">
+                <input type="checkbox" id="client-live" />
+                <span>Live key (<code>ifp_live_…</code>)</span>
+              </span>
+            </label>
+          </div>
+
+          <fieldset class="scope-fieldset">
+            <legend class="field__label">Scopes</legend>
+            <label class="check">
+              <input type="checkbox" name="scope" value="read:public" checked />
+              <span><code>read:public</code> — prices, stations, sources</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" name="scope" value="read:internal" />
+              <span><code>read:internal</code> — source health, crawl runs</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" name="scope" value="write:ingestion" />
+              <span><code>write:ingestion</code> — enqueue crawls</span>
+            </label>
+          </fieldset>
+
+          <div class="field-row">
+            <label class="field field--grow">
+              <span class="field__label">Rate limit / minute (optional)</span>
+              <input
+                type="number"
+                id="rate-limit"
+                class="field__input field__input--mono"
+                min="1"
+                step="1"
+                placeholder="default"
+              />
+            </label>
+            <label class="field field--grow">
+              <span class="field__label">Daily quota (optional)</span>
+              <input
+                type="number"
+                id="quota"
+                class="field__input field__input--mono"
+                min="1"
+                step="1"
+                placeholder="default"
+              />
+            </label>
+          </div>
+
+          <div class="settings-panel__actions">
+            <button type="submit" class="btn btn--primary" id="create-btn">
+              <span class="btn__label">Create API key</span>
+              <span class="btn__spinner" hidden aria-hidden="true"></span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <div id="create-status" class="status-region" aria-live="polite"></div>
+
+      <section class="panel result-panel" id="result-panel" hidden>
+        <h2 class="panel__title">New credentials</h2>
+        <p class="panel__hint warn-hint">
+          Store the API key now. It cannot be recovered from the database (only a hash is kept).
+        </p>
+        <label class="field">
+          <span class="field__label">client_id</span>
+          <div class="copy-row">
+            <input type="text" id="out-client-id" class="field__input field__input--mono" readonly />
+            <button type="button" class="btn btn--ghost" data-copy="out-client-id">Copy</button>
+          </div>
+        </label>
+        <label class="field" style="margin-top: 0.75rem">
+          <span class="field__label">api_key</span>
+          <div class="copy-row">
+            <input type="text" id="out-api-key" class="field__input field__input--mono" readonly />
+            <button type="button" class="btn btn--ghost" data-copy="out-api-key">Copy</button>
+          </div>
+        </label>
+        <div class="settings-panel__actions">
+          <button type="button" class="btn btn--primary" id="use-key-btn">
+            Use this key in Prices
+          </button>
+          <a class="btn btn--ghost" href="/">Open Prices</a>
+        </div>
+        <p class="settings-panel__status" id="use-key-status" role="status"></p>
+      </section>
+    </div>
+
+    <script type="module" src="/src/keys.js"></script>
+  </body>
+</html>
