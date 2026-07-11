@@ -19,7 +19,11 @@
     "check": "npm run lint && npm run typecheck && npm run build && npm run openapi:lint && npm test",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/migrate.ts --seed",
-    "db:fixtures": "tsx src/db/migrate.ts --fixtures"
+    "db:fixtures": "tsx src/db/migrate.ts --fixtures",
+    "generate:coverage-fixtures": "tsx scripts/generate-coverage-fixtures.ts",
+    "seed:pin-reference": "tsx scripts/seed-pin-reference.ts",
+    "verify:pin-coverage": "tsx scripts/verify-pin-coverage.ts",
+    "coverage:ingest": "npm run build && bash scripts/vm-ingest-coverage.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1084.0",

@@ -25,4 +25,12 @@ export abstract class StubAdapter implements SourceAdapter {
   protected async loadFixture(fileName: string): Promise<Buffer> {
     return readFile(join(process.cwd(), 'fixtures', 'ingestion', this.sourceKey, fileName));
   }
+
+  protected async loadCoverageFixture(): Promise<Buffer> {
+    try {
+      return await this.loadFixture('metros.html');
+    } catch {
+      return await this.loadFixture('current.html');
+    }
+  }
 }
