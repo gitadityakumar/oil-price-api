@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { closePool } from '../db/pool';
+import { closeRedis } from '../core/redis/redis-client';
 import { IngestionService } from '../modules/ingestion/ingestion.service';
 
 let stopping = false;
@@ -28,4 +29,7 @@ process.on('SIGTERM', () => { stopping = true; });
 void main().catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
   process.exitCode = 1;
-}).finally(() => closePool());
+}).finally(async () => {
+  await closeRedis();
+  await closePool();
+});
