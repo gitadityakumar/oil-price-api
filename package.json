@@ -40,5 +40,8 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.63.0",
     "yaml": "2.9.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }
